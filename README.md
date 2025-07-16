@@ -49,25 +49,25 @@ DisplayManager.exe tv    # Switch to TV mode
 │                    User Interface Layer                     │
 ├─────────────────┬─────────────────┬─────────────────────────┤
 │   GUI Components│  System Tray    │   CLI Interface         │
-│   - Main Window │  - Context Menu │   - Command Processing │
-│   - Buttons     │  - Notifications│   - Automation Support │
-│   - Status Bar  │  - Quick Access │   - Exit Codes         │
+│   - Main Window │  - Context Menu │   - Command Processing  │
+│   - Buttons     │  - Notifications│   - Automation Support  │
+│   - Status Bar  │  - Quick Access │   - Exit Codes          │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
 │                  Application Logic Layer                    │
 ├─────────────────┬─────────────────┬─────────────────────────┤
 │  Core Features  │ Config Management│  Keyboard Shortcuts    │
-│  - Mode Switch  │ - Save/Load     │  - Hotkey Registration │
-│  - Detection    │ - JSON Storage  │  - Event Handling      │
-│  - Validation   │ - Backup/Restore│  - Global Access       │
+│  - Mode Switch  │ - Save/Load     │  - Hotkey Registration  │
+│  - Detection    │ - JSON Storage  │  - Event Handling       │
+│  - Validation   │ - Backup/Restore│  - Global Access        │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
 │                   System Interface Layer                    │
 ├─────────────────────────────────────────────────────────────┤
 │              Windows Display Configuration API              │
-│  - Display Enumeration    - Mode Application               │
-│  - Hardware Detection     - Resolution Management          │
-│  - Topology Control       - Multi-Monitor Support          │
+│  - Display Enumeration    - Mode Application                │
+│  - Hardware Detection     - Resolution Management           │
+│  - Topology Control       - Multi-Monitor Support           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
