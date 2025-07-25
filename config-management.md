@@ -2,235 +2,431 @@
 
 ## Overview
 
-The Configuration Management system provides persistent storage and retrieval of display configurations, allowing users to save custom display setups and restore them later. This system uses JSON serialization for human-readable configuration files and handles both automatic and manual configuration management.
+The Configuration Management system provides immutable, event-sourced configuration handling for display setups. Built on functional programming principles and Entity-Component-System (ECS) architecture, this system treats configurations as immutable data structures with event sourcing for change tracking, enabling reliable, testable, and auditable configuration management.
 
-## Core Components
+## Functional Architecture
 
-### Configuration Data Classes
+### Immutable Configuration Types
+**Location**: `Core/Configuration.fs`
 
-#### DisplayConfig Class
-**Location**: `DisplayManagerGUI.cs:645-650`
-```csharp
-public class DisplayConfig
-{
-    public List<DisplayInfo> Displays { get; set; } = new List<DisplayInfo>();
-    public string ConfigName { get; set; }
-    public DateTime SavedAt { get; set; }
+```fsharp
+// Immutable configuration record types
+type DisplayInfo = {
+    DeviceName: string
+    FriendlyName: string
+    IsActive: bool
+    Position: int * int
+    Resolution: uint * uint
+    RefreshRate: uint
+    TargetId: uint
+    SourceId: uint
 }
-```
 
-**Purpose**: Container for complete display configuration including metadata
-
-#### DisplayInfo Class
-**Location**: `DisplayManagerGUI.cs:652-664`
-```csharp
-public class DisplayInfo
-{
-    public string DeviceName { get; set; }
-    public string FriendlyName { get; set; }
-    public bool IsActive { get; set; }
-    public int PositionX { get; set; }
-    public int PositionY { get; set; }
-    public uint Width { get; set; }
-    public uint Height { get; set; }
-    public uint RefreshRate { get; set; }
-    public uint TargetId { get; set; }
-    public uint SourceId { get; set; }
+type DisplayConfig = {
+    Name: string
+    Displays: DisplayInfo list
+    Timestamp: DateTimeOffset
+    Version: string
 }
+
+// Configuration events for event sourcing
+type ConfigEvent = 
+    | ConfigCreated of DisplayConfig
+    | ConfigUpdated of DisplayConfig * DisplayConfig
+    | ConfigDeleted of string * DateTimeOffset
+    | ConfigRestored of DisplayConfig
 ```
 
-**Purpose**: Individual display properties and settings
+**Key Benefits**:
+- **Immutability**: Configurations cannot be accidentally modified
+- **Type Safety**: F# type system prevents invalid configurations
+- **Event Sourcing**: All changes are tracked as events
+- **Testability**: Pure data structures enable easy testing
 
-### Configuration Directory
-**Location**: `DisplayManagerGUI.cs:74-83`
-```csharp
-configPath = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-    "DisplayManager"
-);
-Directory.CreateDirectory(configPath);
-```
+### Event Store
+**Location**: `Core/ConfigurationStore.fs`
 
-**Default Path**: `%APPDATA%\DisplayManager\`
-**Purpose**: Centralized location for all configuration files
-
-## Save Configuration
-
-### Save Process Flow
-**Location**: `DisplayManagerGUI.cs:353-379`
-
-1. **User Initiated**: User clicks "Save Config" button
-2. **File Dialog**: SaveFileDialog opens with default naming
-3. **Current Configuration**: System captures current display state
-4. **Metadata Addition**: Adds configuration name and timestamp
-5. **Serialization**: Converts to JSON format
-6. **File Writing**: Saves to selected location
-7. **User Feedback**: Shows success/error message
-
-### Save Implementation
-```csharp
-private void BtnSaveConfig_Click(object sender, EventArgs e)
-{
-    using (var dialog = new SaveFileDialog())
-    {
-        dialog.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*";
-        dialog.InitialDirectory = configPath;
-        dialog.FileName = $"DisplayConfig_{DateTime.Now:yyyyMMdd_HHmmss}.json";
-        
-        if (dialog.ShowDialog() == DialogResult.OK)
-        {
-            try
-            {
-                var config = DisplayManager.GetCurrentConfiguration();
-                config.ConfigName = Path.GetFileNameWithoutExtension(dialog.FileName);
-                DisplayManager.SaveConfiguration(config, dialog.FileName);
-                UpdateStatus($"Configuration saved: {config.ConfigName}");
-                MessageBox.Show($"Configuration saved successfully:\n{config.ConfigName}", 
-                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving configuration: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
+```fsharp
+// Event store for configuration events
+module ConfigurationStore =
+    
+    type EventStore = {
+        Events: ConfigEvent list
+        Snapshots: Map<string, DisplayConfig>
     }
-}
+    
+    // Pure functions for event handling
+    let applyEvent (store: EventStore) (event: ConfigEvent) : EventStore =
+        match event with
+        | ConfigCreated config ->
+            { store with 
+                Events = event :: store.Events
+                Snapshots = Map.add config.Name config store.Snapshots }
+        | ConfigUpdated (oldConfig, newConfig) ->
+            { store with 
+                Events = event :: store.Events
+                Snapshots = Map.add newConfig.Name newConfig store.Snapshots }
+        | ConfigDeleted (name, timestamp) ->
+            { store with 
+                Events = event :: store.Events
+                Snapshots = Map.remove name store.Snapshots }
+        | ConfigRestored config ->
+            { store with 
+                Events = event :: store.Events
+                Snapshots = Map.add config.Name config store.Snapshots }
 ```
 
-### Save Dialog Properties
-- **Filter**: JSON files (*.json) and All files (*.*)
-- **Initial Directory**: Application configuration directory
-- **Default Filename**: `DisplayConfig_YYYYMMDD_HHMMSS.json`
-- **File Format**: JSON with indented formatting
+**Benefits**:
+- **Event Sourcing**: Complete audit trail of all configuration changes
+- **Immutable State**: Store state never mutates, only transforms
+- **Testability**: Pure functions enable comprehensive testing
 
-### JSON Serialization
-**Location**: `DisplayManagerGUI.cs:760-768`
-```csharp
-public static void SaveConfiguration(DisplayConfig config, string filename)
-{
-    var options = new JsonSerializerOptions 
-    { 
-        WriteIndented = true 
-    };
-    var json = JsonSerializer.Serialize(config, options);
-    File.WriteAllText(filename, json);
-}
-```
+## Configuration Operations
 
-## Load Configuration
+### Pure Configuration Functions
+**Location**: `Core/ConfigurationLogic.fs`
 
-### Load Process Flow
-**Location**: `DisplayManagerGUI.cs:381-417`
-
-1. **User Initiated**: User clicks "Load Config" button
-2. **File Dialog**: OpenFileDialog opens in config directory
-3. **File Selection**: User selects configuration file
-4. **Deserialization**: JSON file parsed into DisplayConfig object
-5. **User Confirmation**: Confirmation dialog for applying changes
-6. **Configuration Application**: Display settings applied if confirmed
-7. **System Update**: Display information refreshed
-8. **User Feedback**: Status update and notifications
-
-### Load Implementation
-```csharp
-private void BtnLoadConfig_Click(object sender, EventArgs e)
-{
-    using (var dialog = new OpenFileDialog())
-    {
-        dialog.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*";
-        dialog.InitialDirectory = configPath;
-        
-        if (dialog.ShowDialog() == DialogResult.OK)
+```fsharp
+module ConfigurationLogic =
+    
+    // Pure function to create new configuration
+    let createConfig (name: string) (displays: DisplayInfo list) : DisplayConfig =
         {
+            Name = name
+            Displays = displays
+            Timestamp = DateTimeOffset.Now
+            Version = "2.0"
+        }
+    
+    // Pure function to validate configuration
+    let validateConfig (config: DisplayConfig) : Result<DisplayConfig, string> =
+        if String.IsNullOrWhiteSpace(config.Name) then
+            Error "Configuration name cannot be empty"
+        elif List.isEmpty config.Displays then
+            Error "Configuration must contain at least one display"
+        elif config.Displays |> List.exists (fun d -> d.Resolution = (0u, 0u)) then
+            Error "All displays must have valid resolution"
+        else
+            Ok config
+    
+    // Pure function to merge configurations
+    let mergeConfigs (primary: DisplayConfig) (secondary: DisplayConfig) : DisplayConfig =
+        let mergedDisplays = 
+            primary.Displays @ 
+            (secondary.Displays |> List.filter (fun d -> 
+                not (primary.Displays |> List.exists (fun pd -> pd.DeviceName = d.DeviceName))))
+        
+        { primary with Displays = mergedDisplays }
+```
+
+### Effect Handlers for I/O Operations
+**Location**: `Adapters/ConfigurationEffects.fs`
+
+```fsharp
+module ConfigurationEffects =
+    
+    // Effect types for configuration operations
+    type ConfigEffect<'T> =
+        | Pure of 'T
+        | SaveConfig of DisplayConfig * string * (Result<unit, string> -> ConfigEffect<'T>)
+        | LoadConfig of string * (Result<DisplayConfig, string> -> ConfigEffect<'T>)
+        | GetCurrentConfig of (DisplayConfig -> ConfigEffect<'T>)
+        | ShowDialog of string * (bool -> ConfigEffect<'T>)
+    
+    // Pure configuration save logic
+    let saveConfigLogic (config: DisplayConfig) (path: string) : ConfigEffect<Result<unit, string>> =
+        config
+        |> ConfigurationLogic.validateConfig
+        |> function
+            | Ok validConfig ->
+                SaveConfig(validConfig, path, fun result ->
+                    match result with
+                    | Ok () -> Pure (Ok ())
+                    | Error msg -> Pure (Error msg))
+            | Error msg -> Pure (Error msg)
+    
+    // Effect interpreter for file operations
+    let rec interpretConfigEffect<'T> (effect: ConfigEffect<'T>) : 'T =
+        match effect with
+        | Pure value -> value
+        | SaveConfig (config, path, cont) ->
             try
-            {
-                var config = DisplayManager.LoadConfiguration(dialog.FileName);
-                
-                var result = MessageBox.Show(
-                    $"Load configuration '{config.ConfigName}'?\n\n" +
-                    $"This will change your display settings.",
-                    "Confirm Load", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                    
-                if (result == DialogResult.Yes)
-                {
-                    UpdateStatus($"Loading configuration: {config.ConfigName}...");
-                    Application.DoEvents();
-                    
-                    DisplayManager.ApplyConfiguration(config);
-                    System.Threading.Thread.Sleep(2000);
-                    LoadDisplayInfo();
-                    UpdateStatus($"Configuration loaded: {config.ConfigName}");
+                let json = JsonSerializer.Serialize(config, JsonSerializerOptions(WriteIndented = true))
+                File.WriteAllText(path, json)
+                cont (Ok ()) |> interpretConfigEffect
+            with
+            | ex -> cont (Error ex.Message) |> interpretConfigEffect
+        | LoadConfig (path, cont) ->
+            try
+                let json = File.ReadAllText(path)
+                let config = JsonSerializer.Deserialize<DisplayConfig>(json)
+                cont (Ok config) |> interpretConfigEffect
+            with
+            | ex -> cont (Error ex.Message) |> interpretConfigEffect
+        | GetCurrentConfig cont ->
+            let currentConfig = DisplayAPI.getCurrentConfiguration()
+            cont currentConfig |> interpretConfigEffect
+        | ShowDialog (message, cont) ->
+            let result = MessageBox.Show(message, "Confirm", MessageBoxButtons.YesNo) = DialogResult.Yes
+            cont result |> interpretConfigEffect
+```
+
+**Benefits**:
+- **Separation of Concerns**: Pure logic separated from side effects
+- **Testability**: Effects can be mocked and tested independently
+- **Composability**: Effects can be combined and reused
+
+### Event-Sourced Configuration Workflow
+**Location**: `Systems/ConfigurationSystem.fs`
+
+```fsharp
+module ConfigurationSystem =
+    
+    // Pure function composition for configuration operations
+    let saveConfigurationWorkflow (name: string) : ConfigEffect<Result<unit, string>> =
+        configEffect {
+            let! currentConfig = GetCurrentConfig
+            let namedConfig = { currentConfig with Name = name }
+            let validationResult = ConfigurationLogic.validateConfig namedConfig
+            
+            match validationResult with
+            | Ok validConfig ->
+                let! saveResult = SaveConfig(validConfig, $"{name}.json")
+                match saveResult with
+                | Ok () ->
+                    // Create event for event store
+                    let event = ConfigCreated validConfig
+                    let! _ = applyConfigEvent event
+                    return Ok ()
+                | Error msg -> return Error msg
+            | Error msg -> return Error msg
+        }
+    
+    // Functional pipeline for loading configurations
+    let loadConfigurationWorkflow (path: string) : ConfigEffect<Result<DisplayConfig, string>> =
+        configEffect {
+            let! loadResult = LoadConfig path
+            match loadResult with
+            | Ok config ->
+                let! confirmed = ShowDialog $"Load configuration '{config.Name}'?"
+                if confirmed then
+                    let event = ConfigRestored config
+                    let! _ = applyConfigEvent event
+                    return Ok config
+                else
+                    return Error "Load cancelled by user"
+            | Error msg -> return Error msg
+        }
+```
+
+## Configuration Event Processing
+
+### Event Sourcing Implementation
+**Location**: `Core/EventSourcing.fs`
+
+```fsharp
+module EventSourcing =
+    
+    // Pure function to replay events and build current state
+    let replayEvents (events: ConfigEvent list) : Map<string, DisplayConfig> =
+        events
+        |> List.rev  // Process events in chronological order
+        |> List.fold (fun state event ->
+            match event with
+            | ConfigCreated config -> Map.add config.Name config state
+            | ConfigUpdated (_, newConfig) -> Map.add newConfig.Name newConfig state
+            | ConfigDeleted (name, _) -> Map.remove name state
+            | ConfigRestored config -> Map.add config.Name config state
+        ) Map.empty
+    
+    // Pure function to get configuration at specific timestamp
+    let getConfigurationAtTime (events: ConfigEvent list) (timestamp: DateTimeOffset) : Map<string, DisplayConfig> =
+        events
+        |> List.filter (fun event ->
+            match event with
+            | ConfigCreated config -> config.Timestamp <= timestamp
+            | ConfigUpdated (_, config) -> config.Timestamp <= timestamp
+            | ConfigDeleted (_, ts) -> ts <= timestamp
+            | ConfigRestored config -> config.Timestamp <= timestamp)
+        |> replayEvents
+    
+    // Functional approach to event validation
+    let validateEvent (event: ConfigEvent) : Result<ConfigEvent, string> =
+        match event with
+        | ConfigCreated config ->
+            ConfigurationLogic.validateConfig config
+            |> Result.map (fun _ -> event)
+        | ConfigUpdated (oldConfig, newConfig) ->
+            match ConfigurationLogic.validateConfig newConfig with
+            | Ok _ when oldConfig.Name = newConfig.Name -> Ok event
+            | Ok _ -> Error "Configuration name cannot be changed during update"
+            | Error msg -> Error msg
+        | ConfigDeleted (name, _) when not (String.IsNullOrWhiteSpace(name)) -> Ok event
+        | ConfigDeleted _ -> Error "Configuration name cannot be empty for deletion"
+        | ConfigRestored config ->
+            ConfigurationLogic.validateConfig config
+            |> Result.map (fun _ -> event)
+```
+
+### Testing Pure Functions
+**Location**: `Tests/ConfigurationTests.fs`
+
+```fsharp
+module ConfigurationTests =
+    
+    [<Test>]
+    let ``createConfig creates valid configuration with timestamp`` () =
+        // Arrange
+        let name = "TestConfig"
+        let displays = [
+            { DeviceName = "Display1"
+              FriendlyName = "Monitor 1"
+              IsActive = true
+              Position = (0, 0)
+              Resolution = (1920u, 1080u)
+              RefreshRate = 60u
+              TargetId = 1u
+              SourceId = 1u }
+        ]
+        
+        // Act
+        let result = ConfigurationLogic.createConfig name displays
+        
+        // Assert
+        Assert.AreEqual(name, result.Name)
+        Assert.AreEqual(displays, result.Displays)
+        Assert.AreEqual("2.0", result.Version)
+        Assert.True(result.Timestamp > DateTimeOffset.MinValue)
+    
+    [<Test>]
+    let ``validateConfig returns error for empty name`` () =
+        // Arrange
+        let config = { 
+            Name = ""
+            Displays = []
+            Timestamp = DateTimeOffset.Now
+            Version = "2.0"
+        }
+        
+        // Act
+        let result = ConfigurationLogic.validateConfig config
+        
+        // Assert
+        match result with
+        | Error msg -> Assert.AreEqual("Configuration name cannot be empty", msg)
+        | Ok _ -> Assert.Fail("Expected validation error")
+    
+    [<Test>]
+    let ``replayEvents correctly builds configuration state`` () =
+        // Arrange
+        let config1 = ConfigurationLogic.createConfig "Config1" []
+        let config2 = ConfigurationLogic.createConfig "Config2" []
+        let events = [
+            ConfigCreated config1
+            ConfigCreated config2
+            ConfigDeleted ("Config1", DateTimeOffset.Now)
+        ]
+        
+        // Act
+        let result = EventSourcing.replayEvents events
+        
+        // Assert
+        Assert.AreEqual(1, Map.count result)
+        Assert.True(Map.containsKey "Config2" result)
+        Assert.False(Map.containsKey "Config1" result)
+```
+
+**Testing Benefits**:
+- **Pure Functions**: Easy to test with no side effects
+- **Deterministic**: Same inputs always produce same outputs
+- **Isolated**: Each function can be tested independently
+- **Property-Based**: Can use property-based testing frameworks
+
+## ECS Architecture Integration
+
+### Configuration Components
+**Location**: `Core/Components.fs`
+
+```fsharp
+module Components =
+    
+    // Configuration component for entities
+    type ConfigComponent = {
+        Config: DisplayConfig
+        LastApplied: DateTimeOffset option
+        IsDirty: bool
+    }
+    
+    // Display entity with configuration
+    type DisplayEntity = {
+        Id: EntityId
+        Name: string
+        Config: ConfigComponent option
+        IsActive: bool
+    }
+
+// Configuration system in ECS architecture
+module ConfigurationECSSystem =
+    
+    // Pure function to apply configuration to entities
+    let applyConfigToEntities (config: DisplayConfig) (entities: DisplayEntity list) : DisplayEntity list =
+        entities
+        |> List.map (fun entity ->
+            let matchingDisplay = 
+                config.Displays 
+                |> List.tryFind (fun d -> d.DeviceName = entity.Name)
+            
+            match matchingDisplay with
+            | Some display ->
+                let configComponent = {
+                    Config = config
+                    LastApplied = Some DateTimeOffset.Now
+                    IsDirty = false
                 }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error loading configuration: {ex.Message}", "Error",
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-    }
-}
-```
-
-### JSON Deserialization
-**Location**: `DisplayManagerGUI.cs:770-777`
-```csharp
-public static DisplayConfig LoadConfiguration(string filename)
-{
-    if (!File.Exists(filename))
-        throw new FileNotFoundException($"Configuration file {filename} not found");
-
-    var json = File.ReadAllText(filename);
-    return JsonSerializer.Deserialize<DisplayConfig>(json);
-}
-```
-
-## Configuration Application
-
-### Apply Configuration Logic
-**Location**: `DisplayManagerGUI.cs:797-814`
-```csharp
-public static void ApplyConfiguration(DisplayConfig config)
-{
-    // Simplified implementation - uses topology switching
-    bool hasTV = config.Displays.Any(d => 
-        d.FriendlyName.ToLower().Contains("tv") || 
-        d.FriendlyName.ToLower().Contains("hdmi") ||
-        d.FriendlyName.ToLower().Contains("samsung") ||
-        d.FriendlyName.ToLower().Contains("lg"));
+                { entity with 
+                    Config = Some configComponent
+                    IsActive = display.IsActive }
+            | None -> entity)
+    
+    // Pure function for TV detection using pattern matching
+    let detectDisplayType (display: DisplayInfo) : DisplayType =
+        let friendlyName = display.FriendlyName.ToLower()
+        match friendlyName with
+        | name when name.Contains("tv") -> TVDisplay
+        | name when name.Contains("hdmi") -> TVDisplay
+        | name when name.Contains("samsung") -> TVDisplay
+        | name when name.Contains("lg") -> TVDisplay
+        | _ -> MonitorDisplay
+    
+    // Pure function to determine display mode
+    let determineDisplayMode (displays: DisplayInfo list) : DisplayMode =
+        let activeDisplays = displays |> List.filter (fun d -> d.IsActive)
+        let displayTypes = activeDisplays |> List.map detectDisplayType
         
-    if (hasTV && config.Displays.Count(d => d.IsActive) == 1)
-    {
-        SetDisplayMode(DisplayMode.TVMode);
-    }
-    else
-    {
-        SetDisplayMode(DisplayMode.PCMode);
-    }
-}
+        match displayTypes with
+        | [TVDisplay] -> TVMode
+        | types when List.contains TVDisplay types && List.length types > 1 -> ExtendedMode
+        | _ -> PCMode
 ```
 
-### TV Detection Logic
-The system uses heuristic detection to identify TV displays:
-- **Brand Keywords**: "tv", "hdmi", "samsung", "lg"
-- **Active Count**: Single active display suggests TV mode
-- **Fallback**: Multi-display configurations default to PC mode
+**ECS Benefits**:
+- **Entity Separation**: Configuration data separated from display entities
+- **Pure Transformations**: Functions transform entity collections without side effects
+- **Composable Systems**: Configuration system can be combined with other ECS systems
 
-## File Format Structure
+## Functional Configuration Format
 
-### Example Configuration File
+### Immutable Configuration Schema
 ```json
 {
+  "Name": "Work_Setup",
   "Displays": [
     {
       "DeviceName": "\\\\.\\DISPLAY1",
       "FriendlyName": "DELL U2415",
       "IsActive": true,
-      "PositionX": 0,
-      "PositionY": 0,
-      "Width": 1920,
-      "Height": 1200,
+      "Position": [0, 0],
+      "Resolution": [1920, 1200],
       "RefreshRate": 60,
       "TargetId": 1,
       "SourceId": 1
@@ -239,288 +435,67 @@ The system uses heuristic detection to identify TV displays:
       "DeviceName": "\\\\.\\DISPLAY2",
       "FriendlyName": "Samsung TV",
       "IsActive": false,
-      "PositionX": 1920,
-      "PositionY": 0,
-      "Width": 1920,
-      "Height": 1080,
+      "Position": [1920, 0],
+      "Resolution": [1920, 1080],
       "RefreshRate": 60,
       "TargetId": 2,
       "SourceId": 2
     }
   ],
-  "ConfigName": "Work_Setup",
-  "SavedAt": "2024-01-15T10:30:00"
+  "Timestamp": "2024-01-15T10:30:00.000Z",
+  "Version": "2.0"
 }
 ```
 
-### File Naming Convention
-- **Default Format**: `DisplayConfig_YYYYMMDD_HHMMSS.json`
-- **Example**: `DisplayConfig_20240115_103000.json`
-- **User Override**: Users can specify custom names during save
-
-## Configuration Validation
-
-### File Existence Check
-```csharp
-if (!File.Exists(filename))
-    throw new FileNotFoundException($"Configuration file {filename} not found");
-```
-
-### JSON Validation
-- **Format Validation**: JSON deserialization handles format errors
-- **Schema Validation**: DisplayConfig class structure enforces schema
-- **Error Handling**: Exceptions thrown for invalid configurations
-
-### Display Validation
-- **Device Availability**: Checks if saved displays are still connected
-- **Resolution Support**: Validates if saved resolutions are supported
-- **Fallback Handling**: Graceful degradation for missing displays
-
-## Error Handling
-
-### Save Errors
-**Common Scenarios**:
-- **File Access Denied**: Insufficient permissions
-- **Disk Space**: Not enough storage space
-- **Path Invalid**: Invalid file path or name
-- **Serialization Failure**: Object serialization issues
-
-**Error Response**:
-```csharp
-catch (Exception ex)
+### Event Store Format
+```json
 {
-    MessageBox.Show($"Error saving configuration: {ex.Message}", "Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Error);
-}
-```
-
-### Load Errors
-**Common Scenarios**:
-- **File Not Found**: Configuration file doesn't exist
-- **Invalid JSON**: Corrupted or malformed JSON
-- **Version Mismatch**: Incompatible configuration format
-- **Missing Displays**: Saved displays no longer available
-
-**Error Response**:
-```csharp
-catch (Exception ex)
-{
-    MessageBox.Show($"Error loading configuration: {ex.Message}", "Error",
-        MessageBoxButtons.OK, MessageBoxIcon.Error);
-}
-```
-
-## Advanced Features
-
-### Backup Management
-```csharp
-// Create backup before applying new configuration
-private void CreateBackup()
-{
-    var currentConfig = DisplayManager.GetCurrentConfiguration();
-    currentConfig.ConfigName = $"Backup_{DateTime.Now:yyyyMMdd_HHmmss}";
-    var backupPath = Path.Combine(configPath, "Backups");
-    Directory.CreateDirectory(backupPath);
-    var backupFile = Path.Combine(backupPath, $"{currentConfig.ConfigName}.json");
-    DisplayManager.SaveConfiguration(currentConfig, backupFile);
-}
-```
-
-### Auto-Save Current Configuration
-```csharp
-// Automatically save current configuration on startup
-private void AutoSaveCurrentConfig()
-{
-    try
+  "events": [
     {
-        var config = DisplayManager.GetCurrentConfiguration();
-        config.ConfigName = "Current_Startup";
-        var autoSaveFile = Path.Combine(configPath, "AutoSave", "startup.json");
-        Directory.CreateDirectory(Path.GetDirectoryName(autoSaveFile));
-        DisplayManager.SaveConfiguration(config, autoSaveFile);
-    }
-    catch (Exception ex)
+      "type": "ConfigCreated",
+      "timestamp": "2024-01-15T10:30:00.000Z",
+      "data": { /* DisplayConfig object */ }
+    },
     {
-        // Log error but don't interrupt startup
-        LogError($"Auto-save failed: {ex.Message}");
+      "type": "ConfigUpdated", 
+      "timestamp": "2024-01-15T11:00:00.000Z",
+      "data": {
+        "oldConfig": { /* Previous DisplayConfig */ },
+        "newConfig": { /* Updated DisplayConfig */ }
+      }
     }
+  ],
+  "snapshots": {
+    "Work_Setup": { /* Latest DisplayConfig snapshot */ }
+  }
 }
 ```
 
-### Configuration Comparison
-```csharp
-public static bool ConfigurationsEqual(DisplayConfig config1, DisplayConfig config2)
-{
-    if (config1.Displays.Count != config2.Displays.Count)
-        return false;
-        
-    for (int i = 0; i < config1.Displays.Count; i++)
-    {
-        var d1 = config1.Displays[i];
-        var d2 = config2.Displays[i];
-        
-        if (d1.DeviceName != d2.DeviceName ||
-            d1.IsActive != d2.IsActive ||
-            d1.Width != d2.Width ||
-            d1.Height != d2.Height ||
-            d1.PositionX != d2.PositionX ||
-            d1.PositionY != d2.PositionY)
-            return false;
-    }
-    
-    return true;
-}
-```
+## Summary: Functional Programming Benefits
 
-## Performance Considerations
+### Reliability Through Immutability
+- **No Accidental Mutations**: Configuration data cannot be accidentally modified
+- **Thread Safety**: Immutable data structures are inherently thread-safe
+- **Predictable State**: System state changes only through well-defined events
 
-### File I/O Optimization
-- **Async Operations**: Use async file operations for large configurations
-- **Memory Management**: Dispose of file streams properly
-- **Path Validation**: Validate paths before file operations
+### Testability Through Pure Functions
+- **Deterministic Testing**: Pure functions always produce the same output for the same input
+- **Easy Mocking**: Effect handlers can be easily mocked for testing
+- **Property-Based Testing**: Can verify properties across large input spaces
 
-### JSON Performance
-- **Serialization Options**: Use optimized JsonSerializerOptions
-- **Memory Usage**: Stream large configurations instead of loading entirely
-- **Caching**: Cache frequently accessed configurations
+### Maintainability Through Composition
+- **Function Composition**: Complex operations built from simple, composable functions
+- **Separation of Concerns**: Pure logic separated from side effects
+- **Type Safety**: F# type system catches errors at compile time
 
-## Security Considerations
+### Auditability Through Event Sourcing
+- **Complete History**: Every configuration change is tracked as an event
+- **Time Travel**: Can reconstruct system state at any point in time
+- **Compliance**: Full audit trail for regulatory requirements
 
-### File Permissions
-- **User Directory**: Configurations stored in user's AppData folder
-- **Access Control**: Respects Windows file system permissions
-- **No Elevation**: No administrative privileges required
+### Integration with ECS Architecture
+- **Component-Based**: Configuration data stored as components on entities
+- **System Isolation**: Configuration system operates independently
+- **Scalable Design**: Can handle complex multi-display scenarios efficiently
 
-### Data Protection
-- **No Encryption**: Configuration files are plain text JSON
-- **Local Storage**: All data stored locally, no network transmission
-- **Privacy**: No personal data collection or storage
-
-## Migration and Compatibility
-
-### Version Compatibility
-```csharp
-public class DisplayConfigV2 : DisplayConfig
-{
-    public string Version { get; set; } = "2.0";
-    public Dictionary<string, object> ExtendedProperties { get; set; } = new();
-}
-
-// Migration logic
-private DisplayConfig MigrateConfiguration(string json)
-{
-    // Detect version and migrate if necessary
-    var tempConfig = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-    
-    if (!tempConfig.ContainsKey("Version"))
-    {
-        // Migrate from v1.0 to v2.0
-        return MigrateFromV1(json);
-    }
-    
-    return JsonSerializer.Deserialize<DisplayConfig>(json);
-}
-```
-
-### Settings Migration
-```csharp
-// Migrate old configuration files to new format
-private void MigrateOldConfigurations()
-{
-    var oldConfigPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "DisplayManager"
-    );
-    
-    if (Directory.Exists(oldConfigPath))
-    {
-        foreach (var file in Directory.GetFiles(oldConfigPath, "*.json"))
-        {
-            try
-            {
-                var config = LoadConfiguration(file);
-                var newPath = Path.Combine(configPath, Path.GetFileName(file));
-                SaveConfiguration(config, newPath);
-            }
-            catch (Exception ex)
-            {
-                LogError($"Migration failed for {file}: {ex.Message}");
-            }
-        }
-    }
-}
-```
-
-## Usage Examples
-
-### Programmatic Configuration Management
-```csharp
-// Save current configuration programmatically
-var config = DisplayManager.GetCurrentConfiguration();
-config.ConfigName = "Gaming_Setup";
-var savePath = Path.Combine(configPath, "gaming_setup.json");
-DisplayManager.SaveConfiguration(config, savePath);
-
-// Load configuration programmatically
-var loadedConfig = DisplayManager.LoadConfiguration(savePath);
-DisplayManager.ApplyConfiguration(loadedConfig);
-
-// List all saved configurations
-var configFiles = Directory.GetFiles(configPath, "*.json");
-foreach (var file in configFiles)
-{
-    var config = DisplayManager.LoadConfiguration(file);
-    Console.WriteLine($"Configuration: {config.ConfigName}, Saved: {config.SavedAt}");
-}
-```
-
-### Batch Configuration Operations
-```csharp
-// Export all configurations to a backup directory
-private void ExportAllConfigurations(string backupDir)
-{
-    Directory.CreateDirectory(backupDir);
-    
-    foreach (var file in Directory.GetFiles(configPath, "*.json"))
-    {
-        var destFile = Path.Combine(backupDir, Path.GetFileName(file));
-        File.Copy(file, destFile, true);
-    }
-}
-
-// Import configurations from backup
-private void ImportConfigurations(string backupDir)
-{
-    foreach (var file in Directory.GetFiles(backupDir, "*.json"))
-    {
-        var destFile = Path.Combine(configPath, Path.GetFileName(file));
-        File.Copy(file, destFile, true);
-    }
-}
-```
-
-## Integration Points
-
-### Related Components
-- **[Core Features](core-features.md)**: Configuration data captures core display settings
-- **[Display API](display-api.md)**: Raw display data converted to configuration format
-- **[GUI Components](gui-components.md)**: Save/Load buttons trigger configuration operations
-- **[System Tray](system-tray.md)**: Configuration changes trigger tray notifications
-
-### Data Flow
-1. **Current State** → Display API → Configuration Object → JSON File
-2. **JSON File** → Configuration Object → Display API → Applied State
-3. **User Interface** → Configuration Management → File System → User Feedback
-
-## Future Enhancements
-
-### Planned Features
-- **Cloud Sync**: Synchronize configurations across devices
-- **Configuration Profiles**: Named profiles with quick switching
-- **Scheduled Configurations**: Time-based automatic configuration changes
-- **Template System**: Pre-defined configuration templates
-- **Import/Export**: Bulk configuration management
-- **Configuration Validation**: Enhanced validation and error recovery
-- **Version Control**: Track configuration changes over time
-- **Compression**: Compress large configuration files
-- **Encryption**: Optional encryption for sensitive configurations
+The functional approach to configuration management makes DisplaySwitch-Pro more reliable, testable, and maintainable while providing powerful features like event sourcing and time-travel debugging.

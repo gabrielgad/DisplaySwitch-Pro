@@ -1,268 +1,421 @@
-# Build System
+# Build System - F# & .NET 8
 
 ## Overview
 
-The build system for DisplaySwitch-Pro provides multiple methods for compiling and packaging the application, from simple command-line builds to automated deployment packages. The system is designed to create self-contained executables that can run on target systems without requiring separate .NET runtime installation.
+DisplaySwitch-Pro uses a modern F# and .NET 8 build system optimized for functional programming, cross-platform deployment, and high-performance native compilation. The build system supports Linux and Windows targets with comprehensive functional testing using property-based testing frameworks.
 
 ## Prerequisites
 
 ### Required Software
-- **Windows 7 or later** (development and target environment)
-- **.NET 6.0 SDK or later** - Download from https://dotnet.microsoft.com/
-- **Optional**: Visual Studio 2022 (Community edition is free)
+- **Linux (Ubuntu 20.04+, Fedora 35+) or Windows 10+** (development and target)
+- **.NET 8 SDK** - Download from https://dotnet.microsoft.com/download/dotnet/8.0
+- **F# 8.0** (included with .NET 8 SDK)
+- **Optional**: 
+  - JetBrains Rider (excellent F# support)
+  - Visual Studio 2022 17.8+ (Community edition is free)
+  - VS Code with Ionide F# extension
 
 ### Verification Commands
 ```bash
-# Check .NET SDK installation
+# Check .NET 8 SDK installation
 dotnet --version
+# Should show 8.0.x
 
-# List available SDKs
+# Verify F# compiler
+dotnet fsc --help
+
+# List available SDKs (should include .NET 8)
 dotnet --list-sdks
 
-# List available runtimes
+# Check target frameworks
 dotnet --list-runtimes
 ```
 
-## Project Configuration
+## F# Project Configuration
 
-### Project File Structure
-**File**: `DisplayManager.csproj`
+### Main Project File
+**File**: `DisplaySwitch-Pro.fsproj`
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <UseAppHost>true</UseAppHost>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- F# source files in compilation order -->
+    <Compile Include="Types.fs" />
+    <Compile Include="Events.fs" />
+    <Compile Include="Components.fs" />
+    <Compile Include="Systems/DisplayDetection.fs" />
+    <Compile Include="Systems/Configuration.fs" />
+    <Compile Include="Systems/EventSourcing.fs" />
+    <Compile Include="Platform/IPlatformAdapter.fs" />
+    <Compile Include="Platform/LinuxAdapter.fs" />
+    <Compile Include="Platform/WindowsAdapter.fs" />
+    <Compile Include="UI/Views.fs" />
+    <Compile Include="UI/App.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- F# and functional programming packages -->
+    <PackageReference Include="FSharp.Core" Version="8.0.100" />
+    <PackageReference Include="FSharp.Data" Version="6.3.0" />
+    <PackageReference Include="FSharp.Control.Reactive" Version="5.0.5" />
+    <PackageReference Include="Avalonia" Version="11.0.7" />
+    <PackageReference Include="Avalonia.FuncUI" Version="0.5.3" />
+    <PackageReference Include="System.Reactive" Version="6.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Linux-specific native dependencies -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <PackageReference Include="Tmds.DBus" Version="0.15.0" />
+  </ItemGroup>
+
+  <!-- Windows-specific native dependencies -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64'">
+    <PackageReference Include="PInvoke.User32" Version="0.7.124" />
+  </ItemGroup>
+</Project>
+```
+
+### Test Project Configuration
+**File**: `DisplaySwitch-Pro.Tests.fsproj`
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Tests/PropertyTests.fs" />
+    <Compile Include="Tests/UnitTests.fs" />
+    <Compile Include="Tests/IntegrationTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="FsCheck" Version="2.16.5" />
+    <PackageReference Include="FsCheck.Xunit" Version="2.16.5" />
+    <PackageReference Include="xunit" Version="2.6.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+    <PackageReference Include="FsUnit.xUnit" Version="5.6.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="DisplaySwitch-Pro.fsproj" />
+  </ItemGroup>
 </Project>
 ```
 
 ### Key Configuration Properties
-- **OutputType**: `WinExe` - Windows application (no console window)
-- **TargetFramework**: `net6.0-windows` - Windows-specific .NET 6.0
-- **UseWindowsForms**: `true` - Enable Windows Forms support
-- **PublishSingleFile**: `true` - Create single executable file
-- **SelfContained**: `true` - Include .NET runtime in output
-- **RuntimeIdentifier**: `win-x64` - Target 64-bit Windows
-- **PublishReadyToRun**: `true` - Pre-compile for faster startup
+- **OutputType**: `Exe` - Cross-platform console/GUI application
+- **TargetFramework**: `net8.0` - Latest .NET with F# 8.0 features
+- **PublishSingleFile**: `true` - Single executable with all dependencies
+- **SelfContained**: `true` - No external .NET runtime required
+- **PublishTrimmed**: `true` - Remove unused assemblies for smaller size
+- **TrimMode**: `partial` - Safe trimming for F# applications
+- **PublishReadyToRun**: `true` - AOT compilation for faster startup
 
-## Build Methods
+## Cross-Platform Build Methods
 
-### Method 1: Command Line Build (.NET CLI)
+### Method 1: F# CLI Build
 
 #### Setup Project
 ```bash
-# Create project directory
-mkdir DisplayManager
-cd DisplayManager
+# Create F# project directory
+mkdir DisplaySwitch-Pro
+cd DisplaySwitch-Pro
 
-# Initialize project (if not exists)
-dotnet new winforms -n DisplayManager
+# Initialize F# console project
+dotnet new console -lang F# -n DisplaySwitch-Pro
 
-# Or create project file manually (see Project Configuration above)
+# Or create project files manually (see Project Configuration above)
 ```
 
 #### Build Commands
 ```bash
-# Build debug version
+# Build debug version (with F# compiler optimizations)
 dotnet build
 
-# Build release version (optimized)
+# Build release version (full optimizations)
 dotnet build -c Release
 
-# Build with specific runtime
+# Cross-platform builds
+dotnet build -c Release -r linux-x64
 dotnet build -c Release -r win-x64
+dotnet build -c Release -r osx-x64
 
-# Clean build artifacts
+# Clean all build artifacts
 dotnet clean
 ```
 
-#### Publish Commands
+#### Cross-Platform Publish Commands
 ```bash
-# Create self-contained executable
-dotnet publish -c Release -r win-x64 --self-contained true
+# Linux x64 (Ubuntu, Fedora, etc.)
+dotnet publish -c Release -r linux-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true
 
-# Create single file executable
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+# Windows x64
+dotnet publish -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true
 
-# Create ready-to-run executable (faster startup)
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true
+# ARM64 (Apple Silicon, Raspberry Pi)
+dotnet publish -c Release -r linux-arm64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true
 
-# Trim unused assemblies (smaller file size)
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true
+# Optimized for size (aggressive trimming)
+dotnet publish -c Release -r linux-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true \
+  -p:TrimMode=full -p:EnableCompressionInSingleFile=true
+```
+
+#### F# Interactive Development
+```bash
+# Start F# REPL for interactive development
+dotnet fsi
+
+# Load and test modules interactively
+#load "Types.fs";;
+#load "Components.fs";;
+open DisplaySwitchPro.Types;;
+
+# Test functions in REPL
+let testDisplay = { EntityId = DisplayId.New(); FriendlyName = "Test"; DevicePath = "/dev/test"; IsConnected = true; ManufacturerInfo = None }
 ```
 
 #### Output Locations
-- **Debug Build**: `bin\Debug\net6.0-windows\DisplayManager.exe`
-- **Release Build**: `bin\Release\net6.0-windows\DisplayManager.exe`
-- **Published Single File**: `bin\Release\net6.0-windows\win-x64\publish\DisplayManager.exe`
+- **Debug Build**: `bin/Debug/net8.0/DisplaySwitch-Pro` (Linux) / `DisplaySwitch-Pro.exe` (Windows)
+- **Release Build**: `bin/Release/net8.0/DisplaySwitch-Pro`
+- **Linux Published**: `bin/Release/net8.0/linux-x64/publish/DisplaySwitch-Pro`
+- **Windows Published**: `bin/Release/net8.0/win-x64/publish/DisplaySwitch-Pro.exe`
 
-### Method 2: Visual Studio Build
+### Method 2: IDE Development
 
-#### Setup Steps
-1. Open Visual Studio 2022
-2. Create New Project → Windows Forms App (.NET)
-3. Project Name: `DisplayManager`
-4. Framework: `.NET 6.0 (Long-term support)`
-5. Replace generated code with source code
+#### JetBrains Rider (Recommended for F#)
+1. Open Rider → **New Solution** → **F# Console Application**
+2. Project Name: `DisplaySwitch-Pro`
+3. Framework: `.NET 8.0`
+4. Enable F# Interactive window for REPL development
+5. **Build Menu** → **Build Solution** (Ctrl+Shift+F9)
+6. **Run** → **Debug/Run** (F5/Ctrl+F5)
 
-#### Build Process
-1. **Build Menu** → **Build Solution** (Ctrl+Shift+B)
-2. **Build Menu** → **Rebuild Solution** (clean + build)
-3. **Build Menu** → **Publish DisplayManager** (for deployment)
+#### Visual Studio 2022
+1. **Create New Project** → **Console App** → **F#**
+2. Project Name: `DisplaySwitch-Pro`
+3. Framework: `.NET 8.0`
+4. **Build Menu** → **Build Solution** (Ctrl+Shift+B)
+5. **Debug Menu** → **Start with/without Debugging**
 
-#### Configuration Manager
-- **Debug Configuration**: Development builds with debugging symbols
-- **Release Configuration**: Optimized builds for deployment
-- **Platform**: x64 for 64-bit Windows, x86 for 32-bit Windows
+#### VS Code with Ionide
+```bash
+# Install Ionide F# extension
+code --install-extension Ionide.Ionide-fsharp
 
-### Method 3: Automated Build Script
+# Open project
+code DisplaySwitch-Pro
 
-#### Windows Batch Script
-**File**: `build.bat`
-```batch
-@echo off
-echo Building Display Manager...
-
-REM Create project file if it doesn't exist
-if not exist DisplayManager.csproj (
-    echo Creating project file...
-    (
-    echo ^<Project Sdk="Microsoft.NET.Sdk"^>
-    echo   ^<PropertyGroup^>
-    echo     ^<OutputType^>WinExe^</OutputType^>
-    echo     ^<TargetFramework^>net6.0-windows^</TargetFramework^>
-    echo     ^<UseWindowsForms^>true^</UseWindowsForms^>
-    echo     ^<PublishSingleFile^>true^</PublishSingleFile^>
-    echo     ^<SelfContained^>true^</SelfContained^>
-    echo     ^<RuntimeIdentifier^>win-x64^</RuntimeIdentifier^>
-    echo     ^<PublishReadyToRun^>true^</PublishReadyToRun^>
-    echo   ^</PropertyGroup^>
-    echo ^</Project^>
-    ) > DisplayManager.csproj
-)
-
-REM Build release version
-echo Building release version...
-dotnet build -c Release
-
-REM Create single file executable
-echo Creating single file executable...
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true
-
-echo.
-echo Build complete!
-echo Executable location: bin\Release\net6.0-windows\win-x64\publish\DisplayManager.exe
-echo File size: 
-dir /s "bin\Release\net6.0-windows\win-x64\publish\DisplayManager.exe"
-pause
+# Use integrated terminal for builds
+dotnet build
+dotnet run
 ```
 
-#### PowerShell Script
+### Method 3: Cross-Platform Build Scripts
+
+#### Linux/macOS Shell Script  
+**File**: `build.sh`
+```bash
+#!/bin/bash
+set -e
+
+echo "Building DisplaySwitch-Pro with F# and .NET 8..."
+
+# Check prerequisites
+if ! command -v dotnet &> /dev/null; then
+    echo "Error: .NET 8 SDK not found. Please install from https://dotnet.microsoft.com/"
+    exit 1
+fi
+
+# Verify .NET 8
+DOTNET_VERSION=$(dotnet --version | cut -d'.' -f1)
+if [ "$DOTNET_VERSION" -lt "8" ]; then
+    echo "Error: .NET 8 required, found: $(dotnet --version)"
+    exit 1
+fi
+
+echo "Using .NET SDK: $(dotnet --version)"
+
+# Clean previous builds
+echo "Cleaning previous builds..."
+dotnet clean
+
+# Restore dependencies
+echo "Restoring F# dependencies..."
+dotnet restore
+
+# Run tests with property-based testing
+echo "Running FsCheck property tests..."
+dotnet test --configuration Release --logger "console;verbosity=normal"
+
+# Build for current platform
+echo "Building optimized release..."
+dotnet build --configuration Release --no-restore
+
+# Cross-platform publishing
+echo "Publishing cross-platform binaries..."
+
+# Linux x64
+echo "  Building Linux x64..."
+dotnet publish -c Release -r linux-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true \
+  --output ./dist/linux-x64
+
+# Windows x64  
+echo "  Building Windows x64..."
+dotnet publish -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true \
+  --output ./dist/win-x64
+
+echo ""
+echo "Build complete! 🎉"
+echo "Linux binary: ./dist/linux-x64/DisplaySwitch-Pro"
+echo "Windows binary: ./dist/win-x64/DisplaySwitch-Pro.exe"
+
+# Show file sizes
+echo ""
+echo "Binary sizes:"
+ls -lh ./dist/*/DisplaySwitch-Pro*
+```
+
+#### PowerShell Script (Windows)
 **File**: `build.ps1`
 ```powershell
-Write-Host "Building Display Manager..." -ForegroundColor Green
+Write-Host "Building DisplaySwitch-Pro with F# and .NET 8..." -ForegroundColor Green
 
-# Check if .NET SDK is installed
-$dotnetVersion = dotnet --version
-if ($LASTEXITCODE -ne 0) {
-    Write-Error ".NET SDK not found. Please install .NET 6.0 SDK or later."
+# Check if .NET 8 SDK is installed
+try {
+    $dotnetVersion = dotnet --version
+    if ($LASTEXITCODE -ne 0) { throw }
+} catch {
+    Write-Error ".NET 8 SDK not found. Please install from https://dotnet.microsoft.com/"
     exit 1
 }
 
-Write-Host "Using .NET SDK version: $dotnetVersion" -ForegroundColor Yellow
-
-# Create project file if it doesn't exist
-if (-not (Test-Path "DisplayManager.csproj")) {
-    Write-Host "Creating project file..." -ForegroundColor Yellow
-    @"
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net6.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <PublishReadyToRun>true</PublishReadyToRun>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-  </PropertyGroup>
-</Project>
-"@ | Out-File -FilePath "DisplayManager.csproj" -Encoding utf8
+$majorVersion = [int]($dotnetVersion.Split('.')[0])
+if ($majorVersion -lt 8) {
+    Write-Error ".NET 8 required, found: $dotnetVersion"
+    exit 1
 }
 
-# Clean previous builds
+Write-Host "Using .NET SDK: $dotnetVersion" -ForegroundColor Yellow
+
+# Clean and restore
 Write-Host "Cleaning previous builds..." -ForegroundColor Yellow
 dotnet clean
 
-# Build release version
-Write-Host "Building release version..." -ForegroundColor Yellow
-dotnet build -c Release
+Write-Host "Restoring F# dependencies..." -ForegroundColor Yellow
+dotnet restore
 
-# Create single file executable
-Write-Host "Creating single file executable..." -ForegroundColor Yellow
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true
+# Run property-based tests
+Write-Host "Running FsCheck property tests..." -ForegroundColor Yellow
+dotnet test --configuration Release --logger "console;verbosity=normal"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Tests failed!"
+    exit 1
+}
 
-# Show results
-$outputPath = "bin\Release\net6.0-windows\win-x64\publish\DisplayManager.exe"
-if (Test-Path $outputPath) {
-    $fileSize = (Get-Item $outputPath).Length
-    Write-Host "Build complete!" -ForegroundColor Green
-    Write-Host "Executable location: $outputPath" -ForegroundColor Cyan
-    Write-Host "File size: $([math]::Round($fileSize / 1MB, 2)) MB" -ForegroundColor Cyan
-} else {
-    Write-Error "Build failed - output file not found"
+# Build optimized release
+Write-Host "Building optimized F# release..." -ForegroundColor Yellow
+dotnet build --configuration Release --no-restore
+
+# Cross-platform publishing
+Write-Host "Publishing cross-platform binaries..." -ForegroundColor Yellow
+
+# Windows x64
+Write-Host "  Building Windows x64..." -ForegroundColor Cyan
+dotnet publish -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true `
+  --output ./dist/win-x64
+
+# Linux x64
+Write-Host "  Building Linux x64..." -ForegroundColor Cyan  
+dotnet publish -c Release -r linux-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true `
+  --output ./dist/linux-x64
+
+Write-Host ""
+Write-Host "Build complete! 🎉" -ForegroundColor Green
+Write-Host "Windows binary: ./dist/win-x64/DisplaySwitch-Pro.exe" -ForegroundColor Cyan
+Write-Host "Linux binary: ./dist/linux-x64/DisplaySwitch-Pro" -ForegroundColor Cyan
+
+# Show file sizes
+Write-Host ""
+Write-Host "Binary sizes:" -ForegroundColor Yellow
+Get-ChildItem -Path "./dist/*/DisplaySwitch-Pro*" | ForEach-Object {
+    $size = [math]::Round($_.Length / 1MB, 2)
+    Write-Host "  $($_.FullName): $size MB" -ForegroundColor White
 }
 ```
 
-## Build Configurations
+## F# Build Configurations
 
 ### Debug Configuration
-**Purpose**: Development and testing
+**Purpose**: F# interactive development and testing
 **Characteristics**:
-- Debugging symbols included
-- No code optimization
-- Faster build times
-- Larger file size
-- Performance not optimized
+- F# debugging symbols and metadata included
+- Tail call optimization disabled for debugging
+- All F# compiler checks enabled
+- Faster incremental compilation
+- Hot reload support in IDEs
 
 **Build Command**:
 ```bash
 dotnet build -c Debug
 ```
 
-### Release Configuration
-**Purpose**: Production deployment
+### Release Configuration  
+**Purpose**: Production deployment with F# optimizations
 **Characteristics**:
-- Optimized code
+- Full F# compiler optimizations enabled
+- Tail call optimization active
+- Dead code elimination
+- Inlining and partial application optimizations
 - No debugging symbols
-- Smaller file size
-- Better performance
-- Longer build times
 
 **Build Command**:
 ```bash
 dotnet build -c Release
 ```
 
-### Publish Configuration
-**Purpose**: Deployment packages
+### Cross-Platform Publish Configuration
+**Purpose**: Optimized native binaries
 **Characteristics**:
-- Self-contained runtime
-- Single file executable
-- Ready-to-run compilation
-- Trimmed assemblies (optional)
-- Platform-specific
+- Ahead-of-time (AOT) compilation where possible
+- Assembly trimming removes unused .NET libraries
+- Single file deployment with compression
+- Platform-specific optimizations
+- Ready-to-run images for faster startup
 
-**Build Command**:
+**Build Commands**:
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+# Linux optimized
+dotnet publish -c Release -r linux-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true
+
+# Windows optimized  
+dotnet publish -c Release -r win-x64 --self-contained true \
+  -p:PublishSingleFile=true -p:PublishTrimmed=true -p:PublishReadyToRun=true
 ```
 
 ## Advanced Build Options

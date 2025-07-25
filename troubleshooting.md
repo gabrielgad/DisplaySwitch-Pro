@@ -2,83 +2,170 @@
 
 ## Overview
 
-This comprehensive troubleshooting guide addresses common issues, error conditions, and diagnostic procedures for DisplaySwitch-Pro. The guide is organized by problem category with step-by-step solutions and advanced diagnostic techniques.
+This comprehensive troubleshooting guide addresses common issues, error conditions, and diagnostic procedures for DisplaySwitch-Pro built with F# and Entity Component System (ECS) architecture. The functional programming approach enables superior debugging capabilities including event replay, time-travel debugging, and immutable state inspection.
 
 ## Common Issues
 
 ### Application Won't Start
 
-#### Issue: "DisplayManager is already running"
+#### Issue: "DisplaySwitch-Pro is already running"
 **Symptoms**: Error message when trying to launch the application
 **Cause**: Previous instance still running in background
 
-**Solution**:
-1. Check system tray for DisplayManager icon
-2. Right-click icon → Exit
-3. If icon not visible:
-   ```cmd
-   taskkill /F /IM DisplayManager.exe
-   ```
-4. Restart application
+**Linux Solution**:
+```bash
+# Check if running
+ps aux | grep displayswitch-pro
+
+# Stop gracefully
+displayswitch-pro --stop
+
+# Force stop if needed
+pkill -f displayswitch-pro
+
+# Check systemd service
+systemctl --user status displayswitch-pro.service
+systemctl --user stop displayswitch-pro.service
+```
+
+**Windows Solution**:
+```powershell
+# Check if running
+Get-Process displayswitch-pro -ErrorAction SilentlyContinue
+
+# Stop gracefully
+displayswitch-pro.exe --stop
+
+# Force stop
+Stop-Process -Name "displayswitch-pro" -Force
+```
 
 #### Issue: Application crashes on startup
 **Symptoms**: Application starts then immediately closes
-**Cause**: Corrupted configuration or missing dependencies
+**Cause**: Corrupted event store or invalid display configuration
 
-**Solution**:
-1. Check Event Viewer for error details:
-   - Win+R → `eventvwr.msc`
-   - Navigate to Windows Logs → Application
-   - Look for DisplayManager errors
-
-2. Reset configuration:
-   ```cmd
-   rmdir /S /Q "%APPDATA%\DisplayManager"
+**F# ECS Debugging Solution**:
+1. **Check event log integrity**:
+   ```bash
+   displayswitch-pro --validate-events
    ```
 
-3. Reinstall .NET runtime if using framework-dependent build
-4. Run as Administrator if permission issues
+2. **Replay events with debug output**:
+   ```bash
+   displayswitch-pro --replay-events --debug
+   ```
 
-#### Issue: "Could not load file or assembly" error
-**Symptoms**: .NET assembly loading errors
-**Cause**: Missing .NET runtime or corrupted installation
+3. **Reset to last known good state**:
+   ```bash
+   displayswitch-pro --rollback-to-checkpoint
+   ```
 
-**Solution**:
-1. Download and install .NET 6.0 Runtime from Microsoft
-2. Use self-contained build instead
-3. Repair Visual C++ Redistributables
+4. **Full event store reset** (last resort):
+   ```bash
+   # Backup current events
+   cp -r ~/.config/displayswitch-pro/events ~/.config/displayswitch-pro/events.backup
+   
+   # Reset event store
+   displayswitch-pro --reset-events
+   ```
+
+#### Issue: "Binary execution failed" or "Permission denied"
+**Symptoms**: Single binary won't execute
+**Cause**: Missing execute permissions or unsupported architecture
+
+**Linux Solution**:
+```bash
+# Check file permissions
+ls -la ~/.local/bin/displayswitch-pro
+
+# Add execute permission
+chmod +x ~/.local/bin/displayswitch-pro
+
+# Check architecture compatibility
+file ~/.local/bin/displayswitch-pro
+uname -m
+
+# Check dependencies (should be none!)
+ldd ~/.local/bin/displayswitch-pro
+```
+
+**macOS Solution**:
+```bash
+# Remove quarantine attribute
+xattr -d com.apple.quarantine displayswitch-pro
+
+# Allow in System Preferences → Security & Privacy
+```
 
 ### Display Configuration Issues
 
 #### Issue: Display not switching properly
 **Symptoms**: Mode change appears to succeed but displays don't change
-**Cause**: Driver issues, hardware conflicts, or Windows display service problems
+**Cause**: Display server issues, driver problems, or hardware conflicts
 
-**Diagnostic Steps**:
-1. Check display drivers:
-   ```cmd
-   dxdiag
+**ECS Diagnostic Steps**:
+1. **Check component state**:
+   ```bash
+   # View current ECS state
+   displayswitch-pro --dump-components
+   
+   # Show display entities
+   displayswitch-pro --list-displays --verbose
    ```
-   Look for driver issues in Display tab
 
-2. Verify display connections:
-   - Check all cables are securely connected
-   - Test with different cables if available
-   - Try different ports on graphics card
-
-3. Check Windows display settings:
-   - Right-click desktop → Display settings
-   - Verify displays are detected
-   - Test manual switching in Windows
-
-**Solution**:
-1. Update graphics drivers from manufacturer
-2. Restart Windows display service:
-   ```cmd
-   net stop "Windows Display Driver Model"
-   net start "Windows Display Driver Model"
+2. **Verify display server connection**:
+   ```bash
+   # X11
+   echo $DISPLAY
+   xrandr --query
+   
+   # Wayland
+   echo $WAYLAND_DISPLAY
+   wlr-randr
+   
+   # Test direct API access
+   displayswitch-pro --test-display-api
    ```
-3. Disable and re-enable displays in Device Manager
+
+3. **Event replay for debugging**:
+   ```bash
+   # Show recent display events
+   displayswitch-pro --show-events --filter=display --last=10
+   
+   # Replay specific event sequence
+   displayswitch-pro --replay-events --from="2025-01-25 10:00" --to="2025-01-25 10:05"
+   ```
+
+**F# ECS Solution**:
+1. **Component state inspection**:
+   ```bash
+   # Check display component integrity
+   displayswitch-pro --validate-display-components
+   
+   # Reset display component state
+   displayswitch-pro --reset-component display
+   
+   # Force component reinitialization
+   displayswitch-pro --reinit-components
+   ```
+
+2. **Update graphics drivers and restart display server**:
+   ```bash
+   # Linux - restart display manager
+   sudo systemctl restart gdm  # or sddm, lightdm
+   
+   # Or just restart display server
+   sudo systemctl restart display-manager
+   ```
+
+3. **Event-driven recovery**:
+   ```bash
+   # Create recovery checkpoint
+   displayswitch-pro --create-checkpoint "before-display-fix"
+   
+   # Apply fix with rollback capability
+   displayswitch-pro --apply-fix display-not-switching --allow-rollback
+   ```
 
 #### Issue: TV/External display not detected
 **Symptoms**: DisplayManager shows only internal display
@@ -226,96 +313,136 @@ This comprehensive troubleshooting guide addresses common issues, error conditio
 
 ## Advanced Diagnostics
 
-### Debug Mode Activation
+### F# ECS Debug Mode
 
-#### Enable Debug Logging
-Add debug functionality to track issues:
+#### Functional Debugging with Event Sourcing
+The ECS architecture enables powerful debugging through immutable event history:
 
-```csharp
-public class DebugLogger
-{
-    private static string logPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "DisplayManager", "debug.log");
-    
-    public static void EnableDebugMode()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(logPath));
-        
-        // Log application start
-        WriteDebugLog("DEBUG MODE ENABLED", "Application started");
-        
-        // Log system information
-        WriteDebugLog("SYSTEM INFO", $"OS: {Environment.OSVersion}");
-        WriteDebugLog("SYSTEM INFO", $"User: {Environment.UserName}");
-        WriteDebugLog("SYSTEM INFO", $"Machine: {Environment.MachineName}");
-    }
-    
-    public static void WriteDebugLog(string category, string message)
-    {
-        try
-        {
-            var logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{category}] {message}";
-            File.AppendAllText(logPath, logEntry + Environment.NewLine);
-        }
-        catch (Exception ex)
-        {
-            // Fallback to event log
-            EventLog.WriteEntry("DisplayManager", $"Debug log failed: {ex.Message}", EventLogEntryType.Warning);
-        }
-    }
+```fsharp
+// Event-based debug logging
+type DebugEvent = {
+    Timestamp: DateTime
+    EntityId: EntityId option
+    Component: ComponentType option
+    System: SystemType option
+    Event: string
+    Data: Map<string, obj>
+    StackTrace: string option
 }
+
+// Pure debug state
+type DebugState = {
+    Events: DebugEvent list
+    Filter: DebugEvent -> bool
+    Level: LogLevel
+    OutputChannels: OutputChannel list
+}
+
+// Debug event processing
+let processDebugEvent (state: DebugState) (event: DebugEvent) : DebugState =
+    if state.Filter event then
+        let newEvents = event :: state.Events
+        { state with Events = newEvents |> List.take 1000 } // Keep last 1000
+    else
+        state
 ```
 
-#### Command Line Debug Options
-```cmd
-# Enable debug mode
-DisplayManager.exe --debug
+#### Time-Travel Debugging
+```bash
+# Enable comprehensive debug mode
+export DISPLAYSWITCH_PRO_DEBUG=full
+displayswitch-pro --debug-mode=comprehensive
 
-# Verbose logging
-DisplayManager.exe --verbose
+# Time-travel debugging - replay system state
+displayswitch-pro --time-travel --to="2025-01-25 14:30:00" --show-state
 
-# Test mode (no actual display changes)
-DisplayManager.exe --test-mode
+# Step-by-step event replay
+displayswitch-pro --step-debug --from-event=12345
+
+# Component state at specific time
+displayswitch-pro --component-state --entity=display-1 --time="2025-01-25 14:30:00"
+```
+
+#### Functional Debug Commands
+```bash
+# Event sourcing debug
+displayswitch-pro --debug-events --filter="display|input|system"
+
+# Component inspection
+displayswitch-pro --inspect-components --show-relationships
+
+# System performance profiling
+displayswitch-pro --profile-systems --duration=60s
+
+# Pure function testing (no side effects)
+displayswitch-pro --test-mode --dry-run
+
+# State validation
+displayswitch-pro --validate-state --check-invariants
+
+# Memory usage (should be low due to functional approach)
+displayswitch-pro --memory-profile --show-allocations
+```
+
+#### Immutable State Debugging
+```bash
+# Show complete system state as immutable snapshot
+displayswitch-pro --snapshot-state --format=json > system-state.json
+
+# Compare two states for differences
+displayswitch-pro --diff-states state1.json state2.json
+
+# Validate state consistency
+displayswitch-pro --validate-state-consistency
+
+# Show event causality chain
+displayswitch-pro --show-causality --event-id=12345
 ```
 
 ### System Information Collection
 
-#### Display Information Script
-```powershell
-# Collect comprehensive display information
-$OutputFile = "$env:TEMP\DisplayManager_DiagInfo.txt"
+#### F# ECS Diagnostic Script
+```bash
+#!/bin/bash
+# Comprehensive diagnostic information collection
 
-Write-Output "DisplayManager Diagnostic Information" > $OutputFile
-Write-Output "Generated: $(Get-Date)" >> $OutputFile
-Write-Output "=================================" >> $OutputFile
-Write-Output "" >> $OutputFile
+OUTPUT_FILE="/tmp/displayswitch-pro-diagnostics-$(date +%Y%m%d-%H%M%S).toml"
+
+echo "# DisplaySwitch-Pro Diagnostic Information" > "$OUTPUT_FILE"
+echo "# Generated: $(date)" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+
+# F# ECS Architecture Information
+echo "[architecture]" >> "$OUTPUT_FILE"
+displayswitch-pro --version --detailed >> "$OUTPUT_FILE"
+echo "ecs_world_entities = $(displayswitch-pro --count-entities)" >> "$OUTPUT_FILE"
+echo "ecs_active_systems = $(displayswitch-pro --list-systems --count)" >> "$OUTPUT_FILE"
+echo "event_store_size = $(displayswitch-pro --event-store-stats | grep size)" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
 
 # System Information
-Write-Output "SYSTEM INFORMATION:" >> $OutputFile
-Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, WindowsBuildLabEx >> $OutputFile
-Write-Output "" >> $OutputFile
+echo "[system]" >> "$OUTPUT_FILE"
+echo "os = '$(uname -a)'" >> "$OUTPUT_FILE"
+echo "display_server = '$(echo $XDG_SESSION_TYPE)'" >> "$OUTPUT_FILE"
+echo "wayland_display = '$(echo $WAYLAND_DISPLAY)'" >> "$OUTPUT_FILE"
+echo "x11_display = '$(echo $DISPLAY)'" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
 
-# Display Adapter Information
-Write-Output "DISPLAY ADAPTERS:" >> $OutputFile
-Get-WmiObject -Class Win32_VideoController | Select-Object Name, DriverVersion, DriverDate >> $OutputFile
-Write-Output "" >> $OutputFile
+# Display Configuration (immutable snapshot)
+echo "[displays]" >> "$OUTPUT_FILE"
+displayswitch-pro --export-display-config --format=toml >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
 
-# Monitor Information
-Write-Output "MONITORS:" >> $OutputFile
-Get-WmiObject -Class Win32_DesktopMonitor | Select-Object Name, MonitorType, ScreenHeight, ScreenWidth >> $OutputFile
-Write-Output "" >> $OutputFile
+# Event Store Statistics
+echo "[event_store]" >> "$OUTPUT_FILE"
+displayswitch-pro --event-store-stats --format=toml >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
 
-# Display Configuration
-Write-Output "DISPLAY CONFIGURATION:" >> $OutputFile
-Get-WmiObject -Class Win32_DisplayConfiguration | Select-Object DeviceName, LogPixels, BitsPerPel >> $OutputFile
-Write-Output "" >> $OutputFile
+# Component Health Check
+echo "[components]" >> "$OUTPUT_FILE"
+displayswitch-pro --component-health-check --format=toml >> "$OUTPUT_FILE"
 
-# Running Processes
-Write-Output "DISPLAY-RELATED PROCESSES:" >> $OutputFile
-Get-Process | Where-Object {$_.ProcessName -like "*display*" -or $_.ProcessName -like "*nvidia*" -or $_.ProcessName -like "*amd*" -or $_.ProcessName -like "*intel*"} | Select-Object ProcessName, Id, CPU >> $OutputFile
-
-Write-Output "Diagnostic information saved to: $OutputFile"
+echo "Diagnostic information saved to: $OUTPUT_FILE"
 ```
 
 ### Registry Diagnostic
@@ -370,47 +497,74 @@ netstat -an | findstr :8080
 
 ## Error Code Reference
 
-### Application Error Codes
-| Code | Description | Solution |
-|------|-------------|----------|
-| 1001 | Display configuration API failure | Update graphics drivers |
-| 1002 | Configuration file corrupted | Delete and recreate config |
-| 1003 | Insufficient permissions | Run as Administrator |
-| 1004 | Display hardware not found | Check connections |
-| 1005 | Registry access denied | Check UAC settings |
+### F# ECS Error Types
 
-### Windows API Error Codes
-| Code | Description | Solution |
-|------|-------------|----------|
-| 0 | ERROR_SUCCESS | Operation completed successfully |
-| 5 | ERROR_ACCESS_DENIED | Run with elevated privileges |
-| 87 | ERROR_INVALID_PARAMETER | Check display configuration |
-| 1223 | ERROR_CANCELLED | User cancelled operation |
+#### Functional Error Handling
+```fsharp
+type DisplayError =
+    | DisplayNotFound of displayId: string
+    | InvalidConfiguration of config: DisplayConfig * reason: string
+    | DisplayServerError of serverType: string * error: string
+    | ComponentNotFound of entityId: EntityId * componentType: ComponentType
+    | EventProcessingError of eventId: EventId * error: string
+    | StateValidationError of invariant: string * actualState: obj
 
-### Common Exception Types
-```csharp
-// Handle specific exception types
-try
-{
-    DisplayManager.SetDisplayMode(DisplayManager.DisplayMode.PCMode);
-}
-catch (UnauthorizedAccessException)
-{
-    ShowError("Permission denied. Try running as Administrator.");
-}
-catch (ArgumentException ex)
-{
-    ShowError($"Invalid display configuration: {ex.Message}");
-}
-catch (Win32Exception ex)
-{
-    ShowError($"Windows API error: {ex.Message} (Code: {ex.NativeErrorCode})");
-}
-catch (Exception ex)
-{
-    ShowError($"Unexpected error: {ex.Message}");
-    LogError(ex.ToString());
-}
+type SystemError =
+    | SystemInitializationFailed of systemName: string * error: string
+    | SystemUpdateFailed of systemName: string * deltaTime: float * error: string
+    | DependencyResolutionFailed of dependency: string list
+
+type EventError =
+    | EventStorageError of event: Event * error: string
+    | EventReplayError of eventRange: EventId * EventId * error: string
+    | EventValidationError of event: Event * rule: ValidationRule
+```
+
+### Error Recovery Strategies
+| Error Type | Recovery Strategy | F# ECS Benefit |
+|------------|------------------|----------------|
+| DisplayNotFound | Auto-refresh display list | Component hot-swapping |
+| InvalidConfiguration | Rollback to last valid state | Immutable state history |
+| EventProcessingError | Replay from checkpoint | Event sourcing |
+| SystemUpdateFailed | Restart system without full restart | System isolation |
+| StateValidationError | Validate and fix state | Pure function validation |
+
+### Functional Error Handling
+```fsharp
+// Railway-oriented programming for error handling
+type Result<'T, 'TError> = Ok of 'T | Error of 'TError
+
+// Pure error handling without exceptions
+let setDisplayMode (mode: DisplayMode) : Result<DisplayState, DisplayError> =
+    result {
+        let! currentState = getCurrentDisplayState()
+        let! newConfig = validateDisplayMode mode currentState
+        let! updatedState = applyDisplayConfiguration newConfig
+        do! persistDisplayState updatedState
+        return updatedState
+    }
+
+// Error recovery with event sourcing
+let recoverFromError (error: DisplayError) : Result<unit, SystemError> =
+    match error with
+    | DisplayNotFound displayId ->
+        refreshDisplayList() |> Result.map ignore
+    | InvalidConfiguration (config, reason) ->
+        rollbackToLastValidState() |> Result.map ignore
+    | EventProcessingError (eventId, error) ->
+        replayFromCheckpoint eventId |> Result.map ignore
+    | _ ->
+        Error (SystemError.UnrecoverableError (sprintf "Cannot recover from: %A" error))
+
+// Debug-friendly error messages
+let formatError (error: DisplayError) : string =
+    match error with
+    | DisplayNotFound id -> 
+        sprintf "Display '%s' not found. Available displays: %A" id (getAvailableDisplays())
+    | InvalidConfiguration (config, reason) ->
+        sprintf "Configuration invalid: %s\nConfig: %A\nSuggested fix: %s" reason config (suggestFix config)
+    | DisplayServerError (serverType, error) ->
+        sprintf "Display server (%s) error: %s\nRecovery: %s" serverType error (getRecoverySteps serverType)
 ```
 
 ## Recovery Procedures
@@ -458,61 +612,108 @@ DisplayManager.exe --windows-default
 
 ## Contact and Support
 
-### Information to Collect
+### Information to Collect for F# ECS Issues
 When reporting issues, please provide:
 
 1. **System Information**:
-   - Windows version
-   - Graphics card model and driver version
-   - Display hardware details
+   ```bash
+   displayswitch-pro --system-info
+   ```
+   - Linux distribution and version
+   - Display server (X11/Wayland)
+   - Graphics card and driver version
+   - Desktop environment
 
-2. **Application Information**:
-   - DisplayManager version
-   - Error messages
-   - Steps to reproduce
+2. **F# ECS Architecture Information**:
+   ```bash
+   displayswitch-pro --architecture-info
+   ```
+   - ECS world state snapshot
+   - Active system list
+   - Component relationships
+   - Event store statistics
 
-3. **Log Files**:
-   - `%APPDATA%\DisplayManager\debug.log`
-   - Windows Event Viewer errors
-   - Diagnostic script output
+3. **Event History**:
+   ```bash
+   # Export recent events (anonymized)
+   displayswitch-pro --export-events --last=100 --anonymize
+   ```
+   - Event sequence leading to issue
+   - Component state changes
+   - System transitions
+
+4. **State Validation**:
+   ```bash
+   displayswitch-pro --validate-state --export-violations
+   ```
+   - State consistency check results
+   - Invariant violations
+   - Recovery suggestions
 
 ### Support Channels
-- **GitHub Issues**: Report bugs and feature requests
-- **Documentation**: Check README and feature documentation
-- **Community**: User forums and discussions
+- **GitHub Issues**: Report bugs with event history
+- **Documentation**: F# ECS architecture guides
+- **Community**: Functional programming discussions
+- **Matrix Chat**: Real-time support for complex issues
 
-### Self-Help Resources
-- **Built-in Help**: Press F1 in application
-- **Tool Tips**: Hover over buttons for help text
-- **Status Messages**: Check application status bar
-- **System Tray**: Right-click for quick actions
+### Self-Help Resources with F# ECS
+- **Interactive Help**: `displayswitch-pro --help-interactive`
+- **State Inspector**: `displayswitch-pro --inspect-state`
+- **Event Browser**: `displayswitch-pro --browse-events --interactive`
+- **Component Explorer**: `displayswitch-pro --explore-components`
+- **Time-Travel Debug**: Replay any issue state
+- **Pure Function Tests**: Validate logic without side effects
 
 ## Prevention and Maintenance
 
-### Regular Maintenance
-1. **Update Graphics Drivers**: Monthly driver updates
-2. **Clean Configuration**: Remove old/unused configurations
-3. **Check Connections**: Verify display cable integrity
-4. **Monitor Performance**: Check CPU/memory usage
-5. **Backup Configurations**: Regular config backups
+### F# ECS Maintenance Benefits
+1. **Automatic State Validation**: Continuous invariant checking
+2. **Event Store Cleanup**: Automated old event archival
+3. **Component Health Monitoring**: Automatic component validation
+4. **Memory Management**: Functional approach minimizes memory leaks
+5. **Configuration Immutability**: No configuration corruption possible
 
-### Best Practices
-- **Gradual Changes**: Test configuration changes gradually
-- **Backup Before Changes**: Always backup working configurations
-- **Document Setup**: Keep notes on working configurations
-- **Monitor Updates**: Stay informed about application updates
-- **Regular Restart**: Restart application periodically
+### Functional Best Practices
+- **Event-Driven Changes**: All changes go through event system
+- **Immutable Configurations**: State can't be corrupted
+- **Time-Travel Testing**: Test changes by replaying history
+- **Pure Function Validation**: Test logic without side effects
+- **Automatic Recovery**: System self-heals from event history
+- **Zero-Downtime Updates**: Hot-reload configurations without restart
+
+### Proactive Monitoring
+```bash
+# Set up automated health checks
+displayswitch-pro --health-check --schedule=hourly
+
+# Monitor event store growth
+displayswitch-pro --monitor-events --alert-size=1GB
+
+# Validate state consistency
+displayswitch-pro --validate-state --schedule=daily
+
+# Component performance monitoring
+displayswitch-pro --monitor-components --cpu-threshold=5%
+```
 
 ## Integration Points
 
 ### Related Components
-- **[Installation](installation.md)**: Installation-related troubleshooting
-- **[Build System](build-system.md)**: Build and deployment issues
-- **[Configuration Management](config-management.md)**: Configuration file problems
-- **[Display API](display-api.md)**: Low-level API errors
-- **[System Tray](system-tray.md)**: Tray-related issues
+- **[Installation](installation.md)**: Single binary deployment issues
+- **[Build System](build-system.md)**: F# compilation and packaging
+- **[Configuration Management](config-management.md)**: Immutable config and event sourcing
+- **[Display API](display-api.md)**: Cross-platform display server APIs
+- **[Advanced Features](advanced-features.md)**: Plugin system and functional composition
 
-### Troubleshooting Flow
-1. **Issue Identification** → Problem Category → Diagnostic Steps
-2. **Solution Application** → Verification → Documentation
-3. **Prevention Planning** → Monitoring Setup → Maintenance Schedule
+### F# ECS Troubleshooting Flow
+1. **Issue Detection** → Event Analysis → Component Inspection → System Validation
+2. **Root Cause Analysis** → Event Replay → State Reconstruction → Timeline Analysis
+3. **Solution Application** → State Rollback → Component Restart → Event Correction
+4. **Prevention Implementation** → Invariant Addition → Event Validation → Monitoring Setup
+
+### Functional Debugging Advantages
+- **Deterministic Reproduction**: Exact issue recreation from events
+- **Time-Travel Debugging**: Debug at any point in application history
+- **Pure Function Testing**: Isolated logic testing without side effects
+- **Immutable State Inspection**: No race conditions in debugging
+- **Event Sourcing**: Complete audit trail of all changes

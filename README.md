@@ -1,92 +1,115 @@
 # DisplaySwitch-Pro
 
-A Windows application for seamless display configuration management, providing instant switching between PC mode (multiple monitors) and TV mode (single display) with comprehensive automation and customization features.
+A revolutionary cross-platform display configuration manager built with F# using Entity Component System (ECS) architecture and pure functional programming principles. Experience instant, reliable display switching between PC mode (multiple monitors) and TV mode (single display) with unprecedented performance and maintainability.
+
+## 🌟 Why DisplaySwitch-Pro?
+
+Traditional display managers suffer from state management complexity, platform-specific code, and difficult-to-track bugs. DisplaySwitch-Pro takes a radically different approach:
+
+- **Pure Functional Core**: All business logic is implemented as pure functions with immutable data structures
+- **ECS Architecture**: Display configurations are entities with composable components (Display, Position, Resolution, RefreshRate)
+- **Event Sourcing**: Complete audit trail of all configuration changes, enabling time-travel debugging
+- **Cross-Platform**: Native Linux and Windows support through platform adapters
+- **Reactive UI**: Built with Avalonia.FuncUI for functional reactive programming
 
 ## 🚀 Quick Start
 
 ```bash
-# Download and run
-DisplayManager.exe
+# Run on Linux
+./DisplaySwitch-Pro
+
+# Run on Windows
+DisplaySwitch-Pro.exe
 
 # Command line usage
-DisplayManager.exe pc    # Switch to PC mode
-DisplayManager.exe tv    # Switch to TV mode
+./DisplaySwitch-Pro pc    # Switch to PC mode
+./DisplaySwitch-Pro tv    # Switch to TV mode
+
+# Advanced usage with event replay
+./DisplaySwitch-Pro --replay-events  # Replay all configuration changes
 ```
 
 ## 📋 Core Features
 
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
-| **Display Switching** | One-click toggle between PC and TV modes | [Core Features](core-features.md) |
-| **System Tray** | Always-available background operation | [System Tray](system-tray.md) |
-| **GUI Interface** | Intuitive Windows Forms application | [GUI Components](gui-components.md) |
-| **Configuration Management** | Save/load custom display setups | [Configuration Management](config-management.md) |
-| **Keyboard Shortcuts** | Instant access via hotkeys (Ctrl+1, Ctrl+2) | [Keyboard Shortcuts](keyboard-shortcuts.md) |
-| **Command Line Interface** | Automation and scripting support | [CLI Interface](cli-interface.md) |
+| **Pure ECS Systems** | DisplayDetectionSystem, ConfigurationSystem with zero side effects | [Core Features](core-features.md) |
+| **Immutable Components** | Display, Position, Resolution, RefreshRate entities | [Core Features](core-features.md) |
+| **Event Sourcing** | Complete history of all display configuration changes | [Core Features](core-features.md) |
+| **Platform Adapters** | Linux X11/Wayland and Windows API isolation | [Core Features](core-features.md) |
+| **Functional UI** | Avalonia.FuncUI reactive interface with no mutable state | [GUI Components](gui-components.md) |
+| **Cross-Platform CLI** | F# script-friendly command interface | [CLI Interface](cli-interface.md) |
 
 ## 🔧 System Integration
 
 ### Installation & Setup
-- **Portable Installation** - No installer required
-- **Auto-Start Support** - Launch at Windows startup
-- **Desktop Shortcuts** - Quick access via shortcuts
-- **Start Menu Integration** - Professional installation experience
+- **Cross-Platform Binaries** - Native Linux and Windows executables
+- **Zero Dependencies** - Self-contained .NET 8 deployment
+- **Systemd Integration** - Linux service support
+- **Desktop Environment Integration** - Works with GNOME, KDE, Windows Explorer
 
 📖 **[Complete Installation Guide](installation.md)**
 
 ### Build System
-- **.NET 6.0** - Modern framework with self-contained deployment
-- **Single File Executable** - No dependencies required
-- **Cross-Platform Ready** - Windows 7+ support
-- **Multiple Build Methods** - CLI, Visual Studio, automated scripts
+- **.NET 8** - Latest functional programming features and performance
+- **F# 8.0** - Advanced type system and computation expressions
+- **Cross-Platform Builds** - Linux x64, Windows x64, ARM64 support
+- **Functional Test Suite** - Property-based testing with FsCheck
 
 📖 **[Build System Documentation](build-system.md)**
 
-## 🏗️ Architecture Overview
+## 🏗️ ECS/FP Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    User Interface Layer                     │
+│               Functional Reactive UI Layer                  │
 ├─────────────────┬─────────────────┬─────────────────────────┤
-│   GUI Components│  System Tray    │   CLI Interface         │
-│   - Main Window │  - Context Menu │   - Command Processing  │
-│   - Buttons     │  - Notifications│   - Automation Support  │
-│   - Status Bar  │  - Quick Access │   - Exit Codes          │
+│ Avalonia.FuncUI │   Event Stream  │     CLI Interface       │
+│ - Pure Views    │ - Observables   │   - F# Scripts          │
+│ - No Mutations  │ - Message Flow  │   - Pipeline Support    │
+│ - Type Safety   │ - Hot Reload    │   - Computation Expr.   │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│                  Application Logic Layer                    │
+│                     ECS Core Systems                        │
 ├─────────────────┬─────────────────┬─────────────────────────┤
-│  Core Features  │ Config Management│  Keyboard Shortcuts    │
-│  - Mode Switch  │ - Save/Load     │  - Hotkey Registration  │
-│  - Detection    │ - JSON Storage  │  - Event Handling       │
-│  - Validation   │ - Backup/Restore│  - Global Access        │
+│ Detection System│Configuration Sys│   Event Sourcing        │
+│ - Pure Functions│ - State Machines│   - Event Store         │
+│ - No Side Effect│ - Validations   │   - Time Travel         │
+│ - Composition   │ - Transformations│   - Audit Trail         │
 └─────────────────┴─────────────────┴─────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
-│                   System Interface Layer                    │
+│                    ECS Components                           │
+├─────────────────┬─────────────────┬─────────────────────────┤
+│     Display     │    Position     │     Resolution          │
+│ - EntityId      │ - X, Y Coords   │ - Width, Height         │
+│ - FriendlyName  │ - IsPrimary     │ - RefreshRate           │
+│ - DevicePath    │ - Rotation      │ - ColorDepth            │
+└─────────────────┴─────────────────┴─────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                   Platform Adapters                         │
 ├─────────────────────────────────────────────────────────────┤
-│              Windows Display Configuration API              │
-│  - Display Enumeration    - Mode Application                │
-│  - Hardware Detection     - Resolution Management           │
-│  - Topology Control       - Multi-Monitor Support           │
+│      Linux (X11/Wayland)        │      Windows API         │
+│  - xrandr Integration            │ - Display Config API     │
+│  - Wayland Protocol             │ - Multi-Monitor Support   │
+│  - EDID Parsing                 │ - Hardware Detection      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🔌 Integration Points
+## 🔌 Functional Architecture Benefits
 
-### Cross-Component Communication
+### Pure Function Composition
 ```
-GUI Components ←→ Core Features ←→ Display API
-     ↕                ↕               ↕
-System Tray   ←→ Config Mgmt   ←→ Keyboard Shortcuts
-     ↕                ↕               ↕
-CLI Interface ←→ Troubleshooting ←→ Advanced Features
+Events → Systems → Components → World State
+  ↓        ↓          ↓           ↓
+Input → Transform → Validate → Apply
 ```
 
-Each component is designed for:
-- **Loose Coupling** - Minimal dependencies between components
-- **Event-Driven** - Components communicate via events
-- **Extensible** - Easy to add new features
-- **Testable** - Components can be tested independently
+### Key Architectural Principles
+- **Immutability** - All state changes create new immutable data structures
+- **Pure Functions** - Systems have no side effects, making testing trivial
+- **Event Sourcing** - Complete auditability and time-travel debugging
+- **Composition** - Complex behaviors emerge from simple, composable functions
+- **Type Safety** - F#'s type system prevents entire categories of runtime errors
 
 ## 📚 Component Documentation
 
@@ -122,12 +145,17 @@ git clone https://github.com/user/DisplaySwitch-Pro.git
 cd DisplaySwitch-Pro
 dotnet build
 
-# 2. Read component documentation
-# Start with core-features.md for main functionality
-# Then gui-components.md for UI understanding
+# 2. Explore F# modules
+# Start with core-features.md for ECS architecture
+# Then build-system.md for F#/.NET 8 setup
 
-# 3. Make changes and test
+# 3. Run functional tests
+dotnet test
+# F# property-based tests ensure correctness
+
+# 4. Start development
 dotnet run
+# Hot reload with Avalonia.FuncUI
 ```
 
 ### Contributing Guidelines

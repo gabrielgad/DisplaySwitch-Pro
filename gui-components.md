@@ -1,293 +1,438 @@
-# GUI Components
+# GUI Components - Functional Reactive UI Architecture
 
 ## Overview
 
-The GUI components provide the main user interface for DisplaySwitch-Pro, featuring a Windows Forms-based application with intuitive controls for display management. The interface is designed for quick access to core functionality while providing detailed display information.
+The GUI components in DisplaySwitch-Pro are built using Avalonia.FuncUI, implementing a pure functional reactive approach to user interface development. The UI acts as a pure system that reads world state from the ECS (Entity Component System) and produces immutable view descriptions, similar to React's virtual DOM pattern.
 
-## Main Window Layout
+## Architectural Principles
 
-### Window Properties
-- **Size**: 500x400 pixels
-- **Position**: Center screen on startup
-- **Style**: Fixed single border (non-resizable)
-- **Icon**: System application icon
-- **Title**: "Display Manager"
+### Pure UI Functions
+The UI is composed of pure functions that transform application state into view descriptions:
 
-### Component Hierarchy
-```
-MainForm
-├── lstDisplays (ListBox)
-├── btnPCMode (Button)
-├── btnTVMode (Button)  
-├── btnRefresh (Button)
-├── btnSaveConfig (Button)
-├── btnLoadConfig (Button)
-├── lblHelp (Label)
-└── lblStatus (Label)
+```fsharp
+// Pure view function - no side effects
+let view (state: WorldState) (dispatch: Msg -> unit) =
+    DockPanel.create [
+        DockPanel.children [
+            menuBar state dispatch
+            displayList state
+            controlPanel state dispatch
+            statusBar state
+        ]
+    ]
 ```
 
-## Core UI Components
+### Immutable State Management
+All UI state is immutable and flows unidirectionally:
 
-### Display Information List
-**Component**: `lstDisplays` (ListBox)
-- **Location**: (10, 10)
-- **Size**: 460x150 pixels
-- **Font**: Consolas, 9pt (monospace for alignment)
-- **Purpose**: Shows real-time display configuration information
+```fsharp
+type DisplayState = {
+    Displays: DisplayInfo list
+    ActiveMode: DisplayMode
+    IsRefreshing: bool
+    LastError: string option
+}
 
-**Content Format**:
+// State transitions are pure functions
+let updateState (msg: Msg) (state: DisplayState) : DisplayState =
+    match msg with
+    | RefreshDisplays -> { state with IsRefreshing = true }
+    | DisplaysRefreshed displays -> 
+        { state with Displays = displays; IsRefreshing = false }
+    | SetMode mode -> { state with ActiveMode = mode }
+    | ErrorOccurred err -> { state with LastError = Some err }
 ```
-=== CURRENT DISPLAY CONFIGURATION ===
 
-Display 1: DELL U2415 [ACTIVE]
-  Device: \\.\DISPLAY1
-  Resolution: 1920x1200 @ 60Hz
-  Position: (0, 0)
+## Component Architecture
 
-Display 2: Samsung TV [INACTIVE]
-  Device: \\.\DISPLAY2
-```
+### Root Component
+The root component orchestrates the entire UI as a pure function:
 
-### Mode Switch Buttons
-
-#### PC Mode Button
-**Component**: `btnPCMode`
-- **Location**: (10, 170)
-- **Size**: 90x40 pixels
-- **Text**: "PC Mode\n(All Displays)"
-- **Color**: Light Blue background
-- **Style**: Flat with bold Arial 9pt font
-- **Action**: Calls `SetPCMode()` method
-
-#### TV Mode Button
-**Component**: `btnTVMode`
-- **Location**: (110, 170)
-- **Size**: 90x40 pixels
-- **Text**: "TV Mode\n(TV Only)"
-- **Color**: Light Green background
-- **Style**: Flat with bold Arial 9pt font
-- **Action**: Calls `SetTVMode()` method
-
-#### Refresh Button
-**Component**: `btnRefresh`
-- **Location**: (380, 170)
-- **Size**: 90x40 pixels
-- **Text**: "Refresh"
-- **Style**: Flat standard button
-- **Action**: Calls `LoadDisplayInfo()` method
-
-### Configuration Management
-
-#### Save Configuration Button
-**Component**: `btnSaveConfig`
-- **Location**: (10, 220)
-- **Size**: 90x30 pixels
-- **Text**: "Save Config"
-- **Action**: Opens save dialog for configuration export
-
-#### Load Configuration Button
-**Component**: `btnLoadConfig`
-- **Location**: (110, 220)
-- **Size**: 90x30 pixels
-- **Text**: "Load Config"
-- **Action**: Opens load dialog for configuration import
-
-### Information Display
-
-#### Help Label
-**Component**: `lblHelp`
-- **Location**: (10, 290)
-- **Size**: 460x20 pixels
-- **Text**: "Shortcuts: Ctrl+1 (PC Mode), Ctrl+2 (TV Mode), Ctrl+R (Refresh)"
-- **Style**: Gray text, center aligned
-- **Purpose**: Shows available keyboard shortcuts
-
-#### Status Bar
-**Component**: `lblStatus`
-- **Location**: (10, 320)
-- **Size**: 460x30 pixels
-- **Style**: Fixed single border, white background, center aligned
-- **Format**: "[HH:mm:ss] Status message"
-- **Purpose**: Shows current operation status and timestamps
-
-## Implementation Details
-
-### Form Initialization
-Located in `DisplayManagerGUI.cs:89-197`
-
-```csharp
-private void InitializeComponent()
-{
-    // Form settings
-    this.Text = "Display Manager";
-    this.Size = new Size(500, 400);
-    this.StartPosition = FormStartPosition.CenterScreen;
-    this.Icon = SystemIcons.Application;
-    this.FormBorderStyle = FormBorderStyle.FixedSingle;
-    this.MaximizeBox = false;
+```fsharp
+module App =
+    type Model = {
+        DisplayState: DisplayState
+        WindowState: WindowState
+        TrayState: TrayState
+    }
     
-    // Component initialization...
-}
+    let init () : Model * Cmd<Msg> =
+        let initialModel = {
+            DisplayState = DisplayState.empty
+            WindowState = WindowState.default'
+            TrayState = TrayState.default'
+        }
+        initialModel, Cmd.ofMsg RefreshDisplays
+    
+    let update (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+        match msg with
+        | DisplayMsg dmsg ->
+            let newDisplayState = DisplayState.update dmsg model.DisplayState
+            { model with DisplayState = newDisplayState }, Cmd.none
+        | WindowMsg wmsg ->
+            let newWindowState = WindowState.update wmsg model.WindowState
+            { model with WindowState = newWindowState }, Cmd.none
+        | Effect effect ->
+            model, Cmd.ofEffect effect
 ```
 
-### Display List Population
-Located in `DisplayManagerGUI.cs:257-295`
+### Display List Component
+Pure functional component for rendering display information:
 
-```csharp
-private void LoadDisplayInfo()
-{
-    try
-    {
-        lstDisplays.Items.Clear();
-        var config = DisplayManager.GetCurrentConfiguration();
-        
-        lstDisplays.Items.Add("=== CURRENT DISPLAY CONFIGURATION ===");
-        // ... format and display information
+```fsharp
+module DisplayList =
+    let private displayItem (display: DisplayInfo) =
+        Border.create [
+            Border.padding 8.0
+            Border.margin (0.0, 2.0)
+            Border.background (if display.IsActive then Brushes.LightBlue else Brushes.LightGray)
+            Border.child (
+                StackPanel.create [
+                    StackPanel.children [
+                        TextBlock.create [
+                            TextBlock.text display.FriendlyName
+                            TextBlock.fontWeight FontWeight.Bold
+                        ]
+                        TextBlock.create [
+                            TextBlock.text $"Resolution: {display.Width}x{display.Height} @ {display.RefreshRate}Hz"
+                        ]
+                        TextBlock.create [
+                            TextBlock.text $"Position: ({display.PositionX}, {display.PositionY})"
+                        ]
+                    ]
+                ]
+            )
+        ]
+    
+    let view (displays: DisplayInfo list) =
+        ScrollViewer.create [
+            ScrollViewer.content (
+                ItemsControl.create [
+                    ItemsControl.items displays
+                    ItemsControl.itemTemplate (DataTemplateView<DisplayInfo>.create displayItem)
+                ]
+            )
+        ]
+```
+
+### Control Panel Component
+Mode switching controls as pure functions:
+
+```fsharp
+module ControlPanel =
+    let private modeButton mode currentMode dispatch =
+        Button.create [
+            Button.content (DisplayMode.toString mode)
+            Button.classes [ 
+                if currentMode = mode then "active" 
+            ]
+            Button.onClick (fun _ -> dispatch (SetMode mode))
+        ]
+    
+    let view (state: DisplayState) (dispatch: Msg -> unit) =
+        StackPanel.create [
+            StackPanel.orientation Orientation.Horizontal
+            StackPanel.spacing 10.0
+            StackPanel.children [
+                modeButton PCMode state.ActiveMode dispatch
+                modeButton TVMode state.ActiveMode dispatch
+                
+                Button.create [
+                    Button.content "Refresh"
+                    Button.isEnabled (not state.IsRefreshing)
+                    Button.onClick (fun _ -> dispatch RefreshDisplays)
+                ]
+            ]
+        ]
+```
+
+## Effect Isolation
+
+All side effects are isolated at system boundaries using the Effect pattern:
+
+```fsharp
+type Effect =
+    | QueryDisplays of AsyncReplyChannel<DisplayInfo list>
+    | ApplyDisplayConfig of DisplayConfig * AsyncReplyChannel<Result<unit, string>>
+    | ShowNotification of string
+    | MinimizeToTray
+    | RestoreFromTray
+
+// Effects are handled by platform adapters, not UI components
+let handleEffect (effect: Effect) : Async<unit> =
+    async {
+        match effect with
+        | QueryDisplays replyChannel ->
+            let! displays = PlatformAdapter.queryDisplays()
+            replyChannel.Reply displays
+            
+        | ApplyDisplayConfig (config, replyChannel) ->
+            let! result = PlatformAdapter.applyConfig config
+            replyChannel.Reply result
+            
+        | ShowNotification message ->
+            do! PlatformAdapter.showNotification message
+            
+        | MinimizeToTray ->
+            do! PlatformAdapter.minimizeToTray()
+            
+        | RestoreFromTray ->
+            do! PlatformAdapter.restoreFromTray()
     }
-    catch (Exception ex)
-    {
-        // Error handling
-    }
-}
 ```
 
-### Button Event Handlers
-Located in `DisplayManagerGUI.cs:349-351`
+## Virtual DOM-like Reconciliation
 
-```csharp
-private void BtnPCMode_Click(object sender, EventArgs e) => SetPCMode();
-private void BtnTVMode_Click(object sender, EventArgs e) => SetTVMode();
-private void BtnRefresh_Click(object sender, EventArgs e) => LoadDisplayInfo();
+Avalonia.FuncUI provides efficient reconciliation similar to React:
+
+```fsharp
+// View descriptions are compared structurally
+type ViewElement =
+    | Text of string
+    | Element of elementType: string * props: Map<string, obj> * children: ViewElement list
+
+// Only differences are applied to the actual UI
+let reconcile (oldView: ViewElement) (newView: ViewElement) : ViewPatch list =
+    match oldView, newView with
+    | Text oldText, Text newText when oldText = newText -> []
+    | Element (oldType, oldProps, oldChildren), Element (newType, newProps, newChildren) 
+        when oldType = newType ->
+        let propPatches = diffProps oldProps newProps
+        let childPatches = diffChildren oldChildren newChildren
+        propPatches @ childPatches
+    | _ -> [Replace newView]
 ```
 
-### Status Updates
-Located in `DisplayManagerGUI.cs:419-423`
+## Testability Benefits
 
+The functional approach dramatically improves testability:
+
+### Pure Function Testing
+```fsharp
+[<Test>]
+let ``Clicking PC Mode button dispatches SetMode PCMode message`` () =
+    // Arrange
+    let mutable dispatchedMsg = None
+    let dispatch msg = dispatchedMsg <- Some msg
+    let state = { DisplayState.empty with ActiveMode = TVMode }
+    
+    // Act
+    let view = ControlPanel.view state dispatch
+    simulateButtonClick view "PC Mode"
+    
+    // Assert
+    dispatchedMsg |> should equal (Some (SetMode PCMode))
+```
+
+### State Transition Testing
+```fsharp
+[<Test>]
+let ``RefreshDisplays message sets IsRefreshing to true`` () =
+    // Arrange
+    let initialState = DisplayState.empty
+    
+    // Act
+    let newState = DisplayState.update RefreshDisplays initialState
+    
+    // Assert
+    newState.IsRefreshing |> should be True
+    newState.Displays |> should equal initialState.Displays
+```
+
+### Effect Testing
+```fsharp
+[<Test>]
+let ``SetMode PCMode triggers ApplyDisplayConfig effect`` () =
+    // Arrange
+    let model = { App.Model.empty with DisplayState = { DisplayState.empty with ActiveMode = TVMode } }
+    
+    // Act
+    let newModel, cmd = App.update (SetMode PCMode) model
+    
+    // Assert
+    cmd |> should contain (Effect (ApplyDisplayConfig (pcModeConfig, _)))
+```
+
+## Styling with Functional Approach
+
+Styles are defined as pure data:
+
+```fsharp
+module Styles =
+    let modeButton isActive =
+        Style.create [
+            Style.padding 10.0
+            Style.margin 5.0
+            Style.background (if isActive then Brushes.DodgerBlue else Brushes.LightGray)
+            Style.foreground (if isActive then Brushes.White else Brushes.Black)
+            Style.borderRadius 5.0
+            Style.cursor Cursor.Hand
+        ]
+    
+    let statusBar hasError =
+        Style.create [
+            Style.background (if hasError then Brushes.LightCoral else Brushes.LightGreen)
+            Style.padding 5.0
+            Style.textAlignment TextAlignment.Center
+        ]
+```
+
+## Event Handling
+
+Events are handled through message dispatch, maintaining purity:
+
+```fsharp
+// Messages represent user intentions
+type Msg =
+    | SetMode of DisplayMode
+    | RefreshDisplays
+    | DisplaysRefreshed of DisplayInfo list
+    | SaveConfiguration
+    | LoadConfiguration
+    | ErrorOccurred of string
+    | DismissError
+
+// Event handlers are simple message dispatchers
+let handleKeyDown (dispatch: Msg -> unit) (args: KeyEventArgs) =
+    match args.Key, args.Modifiers with
+    | Key.D1, KeyModifiers.Control -> dispatch (SetMode PCMode)
+    | Key.D2, KeyModifiers.Control -> dispatch (SetMode TVMode)
+    | Key.R, KeyModifiers.Control -> dispatch RefreshDisplays
+    | Key.Escape, _ -> dispatch MinimizeToTray
+    | _ -> ()
+```
+
+## Cross-Platform Considerations
+
+The functional UI approach enables easy cross-platform support:
+
+```fsharp
+// Platform-specific implementations are injected
+type IPlatformUI =
+    abstract member CreateTrayIcon : unit -> ITrayIcon
+    abstract member ShowNotification : string -> Async<unit>
+    abstract member GetPlatformStyles : unit -> Style list
+
+// UI components remain platform-agnostic
+let createWindow (platform: IPlatformUI) =
+    Window.create [
+        Window.title "Display Manager"
+        Window.width 500.0
+        Window.height 400.0
+        Window.styles (platform.GetPlatformStyles())
+        Window.content (view model dispatch)
+    ]
+```
+
+## Performance Optimizations
+
+### Memoization
+```fsharp
+// Expensive computations are memoized
+let memoizedDisplayItem = 
+    FuncUI.memo (fun (display: DisplayInfo) -> displayItem display)
+
+// Only re-render when display data changes
+let optimizedDisplayList displays =
+    ItemsControl.create [
+        ItemsControl.items displays
+        ItemsControl.itemTemplate (DataTemplateView<DisplayInfo>.create memoizedDisplayItem)
+    ]
+```
+
+### Selective Updates
+```fsharp
+// Components can opt out of updates
+let staticHeader =
+    TextBlock.create [
+        TextBlock.text "Display Configuration"
+        TextBlock.fontSize 18.0
+        TextBlock.key "header" // Stable key prevents re-renders
+    ]
+```
+
+## Integration with ECS
+
+The UI reads from the ECS world state:
+
+```fsharp
+// Query display entities from ECS
+let queryDisplays (world: World) : DisplayInfo list =
+    world.Query<DisplayComponent, PositionComponent>()
+    |> Seq.map (fun (entity, display, position) ->
+        {
+            FriendlyName = display.Name
+            Width = display.Width
+            Height = display.Height
+            RefreshRate = display.RefreshRate
+            PositionX = position.X
+            PositionY = position.Y
+            IsActive = world.HasComponent<ActiveComponent>(entity)
+        })
+    |> Seq.toList
+
+// UI subscribes to world changes
+let subscribeToWorld (world: World) (dispatch: Msg -> unit) =
+    world.OnComponentAdded<DisplayComponent> (fun _ ->
+        dispatch RefreshDisplays
+    )
+    world.OnComponentRemoved<DisplayComponent> (fun _ ->
+        dispatch RefreshDisplays
+    )
+```
+
+## Benefits of Functional Approach
+
+### Predictability
+- UI state changes are predictable and traceable
+- No hidden mutations or side effects
+- Time-travel debugging is possible
+
+### Maintainability
+- Components are self-contained pure functions
+- Dependencies are explicit through function parameters
+- Refactoring is safer with compiler assistance
+
+### Testability
+- Pure functions are trivial to test
+- No mocking required for most tests
+- Property-based testing is natural
+
+### Composability
+- Components compose naturally
+- Higher-order components are just higher-order functions
+- Reusability through function composition
+
+## Migration from Imperative UI
+
+For teams transitioning from Windows Forms or WPF:
+
+### Before (Imperative)
 ```csharp
-private void UpdateStatus(string message)
+private void BtnPCMode_Click(object sender, EventArgs e)
 {
-    lblStatus.Text = $"[{DateTime.Now:HH:mm:ss}] {message}";
-    Application.DoEvents();
+    UpdateStatus("Switching to PC Mode...");
+    var config = DisplayManager.GetPCModeConfig();
+    DisplayManager.ApplyConfiguration(config);
+    Thread.Sleep(2000);
+    LoadDisplayInfo();
+    UpdateStatus("PC Mode activated");
 }
 ```
 
-## User Interactions
-
-### Mode Switching Flow
-1. User clicks PC Mode or TV Mode button
-2. Status bar shows "Switching to [Mode]..."
-3. Display configuration changes applied
-4. 2-second wait for changes to settle
-5. Display list refreshes automatically
-6. Status bar shows completion message
-7. System tray notification appears
-
-### Configuration Management Flow
-1. **Save**: User clicks Save Config → File dialog opens → User selects location → Configuration saved as JSON
-2. **Load**: User clicks Load Config → File dialog opens → User selects file → Confirmation dialog → Configuration applied
-
-### Error Handling
-- **Display errors**: Message boxes with detailed error information
-- **Status updates**: Error messages shown in status bar
-- **Visual feedback**: Button states and colors indicate current mode
-
-## Styling and Theming
-
-### Color Scheme
-- **PC Mode Button**: Light Blue (`Color.LightBlue`)
-- **TV Mode Button**: Light Green (`Color.LightGreen`)
-- **Background**: Default Windows form background
-- **Status Bar**: White background with black text
-- **Error Text**: Red for error messages
-
-### Typography
-- **Display List**: Consolas 9pt (monospace)
-- **Buttons**: Arial 9pt Bold
-- **Labels**: Default system font
-- **Status**: Default system font with timestamps
-
-### Visual States
-- **Active Mode**: Corresponding button highlighted
-- **Processing**: Status bar shows progress messages
-- **Errors**: Red text in status bar, error dialogs
-
-## Accessibility Features
-
-### Keyboard Navigation
-- **Tab Order**: Logical flow through controls
-- **Enter Key**: Activates focused button
-- **Escape Key**: Minimizes to system tray
-- **Mnemonics**: Alt+key shortcuts for buttons
-
-### Screen Reader Support
-- **Labels**: Proper labeling for all controls
-- **Status Updates**: Status bar accessible to screen readers
-- **Button Descriptions**: Clear button text and tooltips
-
-## Customization Options
-
-### Layout Modifications
-```csharp
-// Change button positions
-btnPCMode.Location = new Point(x, y);
-btnTVMode.Location = new Point(x, y);
-
-// Modify button colors
-btnPCMode.BackColor = Color.FromArgb(100, 150, 255);
-btnTVMode.BackColor = Color.FromArgb(100, 255, 150);
+### After (Functional)
+```fsharp
+let update msg model =
+    match msg with
+    | SetMode PCMode ->
+        { model with Status = "Switching to PC Mode..." },
+        Cmd.batch [
+            Cmd.ofEffect (ApplyDisplayConfig (pcModeConfig, replyChannel))
+            Cmd.ofAsync (async {
+                do! Async.Sleep 2000
+                return RefreshDisplays
+            })
+        ]
 ```
 
-### Font Customization
-```csharp
-// Change display list font
-lstDisplays.Font = new Font("Courier New", 10);
-
-// Modify button fonts
-btnPCMode.Font = new Font("Arial", 10, FontStyle.Bold);
-```
-
-### Window Behavior
-```csharp
-// Make window resizable
-this.FormBorderStyle = FormBorderStyle.Sizable;
-this.MaximizeBox = true;
-
-// Change startup position
-this.StartPosition = FormStartPosition.Manual;
-this.Location = new Point(100, 100);
-```
-
-## Integration Points
-
-### Related Components
-- **[Core Features](core-features.md)**: Button actions trigger display mode changes
-- **[System Tray](system-tray.md)**: Window can be minimized to tray
-- **[Keyboard Shortcuts](keyboard-shortcuts.md)**: Form handles keyboard input
-- **[Configuration Management](config-management.md)**: Save/Load buttons access config system
-
-### Event Flow
-1. **User Input** → GUI Components → Core Features → Display API
-2. **Status Updates** → Core Features → GUI Components → User Display
-3. **Configuration Changes** → Config Management → GUI Components → Display Refresh
-
-## Performance Considerations
-
-### UI Responsiveness
-- **Async Operations**: Long-running tasks don't block UI
-- **Progress Feedback**: Status bar shows operation progress
-- **Minimal Redraws**: Efficient display list updates
-
-### Memory Management
-- **Resource Disposal**: Proper cleanup of graphics resources
-- **Event Handling**: Prevent memory leaks from event handlers
-- **Display List**: Clear and repopulate efficiently
-
-## Future Enhancements
-
-### Planned UI Improvements
-- **Dark Mode**: Theme switching capability
-- **Custom Layouts**: User-configurable button arrangements
-- **Status Icons**: Visual indicators for display status
-- **Animation**: Smooth transitions between modes
-- **Tooltips**: Enhanced help text for all controls
-- **Tabbed Interface**: Organize features into logical groups
+The functional approach makes the flow explicit and testable without requiring actual display hardware or timing dependencies.

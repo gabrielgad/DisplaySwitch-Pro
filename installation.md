@@ -2,114 +2,188 @@
 
 ## Overview
 
-This guide provides comprehensive installation procedures for DisplaySwitch-Pro, including basic installation, system integration, and advanced deployment scenarios. The installation process is designed to be simple for end users while providing flexibility for system administrators.
+This guide provides comprehensive installation procedures for DisplaySwitch-Pro, built with F# and an Entity Component System (ECS) architecture. The functional programming approach enables single binary deployment, immutable state management, and superior cross-platform support with Linux as the primary platform.
 
 ## Prerequisites
 
 ### System Requirements
-- **Operating System**: Windows 7 or later (Windows 10/11 recommended)
-- **Architecture**: x64 (64-bit) or x86 (32-bit)
+- **Operating System (Primary)**: Linux (any modern distribution)
+  - Ubuntu 20.04+, Fedora 35+, Arch Linux, etc.
+  - Wayland or X11 display server
+- **Operating System (Secondary)**: Windows 10/11, macOS 12+
+- **Architecture**: x64 (64-bit) or ARM64
 - **Memory**: 50MB RAM minimum
-- **Storage**: 200MB available disk space
-- **Permissions**: Standard user account (administrator not required)
+- **Storage**: 50MB available disk space (single binary)
+- **Permissions**: Standard user account (no root/admin required)
 
 ### Dependencies
-- **.NET Runtime**: Included in self-contained builds
-- **Visual C++ Redistributable**: Usually pre-installed on modern Windows
+- **Runtime**: None! Single self-contained binary
+- **Display Server**: X11/Wayland on Linux, native APIs on Windows/macOS
 - **Graphics Drivers**: Up-to-date display drivers recommended
 
 ## Basic Installation
 
-### Method 1: Portable Installation (Recommended)
+### Method 1: Single Binary Installation (Recommended)
 
-1. **Download the executable** from the release page
+#### Linux (Primary Platform)
+1. **Download the binary**:
+   ```bash
+   wget https://github.com/displayswitch-pro/releases/latest/download/displayswitch-pro-linux-x64
+   chmod +x displayswitch-pro-linux-x64
+   ```
+
 2. **Choose installation location**:
-   ```
-   C:\Program Files\DisplayManager\
-   ```
-   or
-   ```
-   C:\Users\[Username]\AppData\Local\DisplayManager\
-   ```
-
-3. **Create directory structure**:
-   ```
-   DisplayManager\
-   ├── DisplayManager.exe
-   ├── README.md
-   └── configs\          (created automatically)
+   ```bash
+   # System-wide (requires sudo)
+   sudo mv displayswitch-pro-linux-x64 /usr/local/bin/displayswitch-pro
+   
+   # User-local (recommended)
+   mkdir -p ~/.local/bin
+   mv displayswitch-pro-linux-x64 ~/.local/bin/displayswitch-pro
    ```
 
-4. **Verify installation**:
-   - Double-click `DisplayManager.exe`
-   - Main window should appear
-   - Check system tray for DisplayManager icon
+3. **Verify installation**:
+   ```bash
+   displayswitch-pro --version
+   displayswitch-pro --help
+   ```
 
-### Method 2: Installer Package (Future)
+#### Windows
+1. **Download the executable**:
+   - Get `displayswitch-pro-win-x64.exe` from releases
+   
+2. **Place in preferred location**:
+   ```
+   C:\Program Files\DisplaySwitchPro\
+   └── displayswitch-pro.exe
+   ```
 
-```batch
-DisplayManager-Setup.exe
-├── Extracts files to Program Files
-├── Creates Start Menu shortcuts
-├── Registers file associations
-└── Configures auto-start (optional)
+3. **Add to PATH** (optional):
+   - System Properties → Environment Variables → PATH
+
+### Method 2: Package Managers
+
+#### Linux Package Managers
+```bash
+# Arch Linux (AUR)
+yay -S displayswitch-pro
+
+# Ubuntu/Debian (via PPA)
+sudo add-apt-repository ppa:displayswitch-pro/stable
+sudo apt update
+sudo apt install displayswitch-pro
+
+# Fedora/RHEL
+sudo dnf copr enable displayswitch-pro/stable
+sudo dnf install displayswitch-pro
+
+# Nix/NixOS
+nix-env -iA nixpkgs.displayswitch-pro
+```
+
+#### macOS (Homebrew)
+```bash
+brew tap displayswitch-pro/tap
+brew install displayswitch-pro
 ```
 
 ## System Integration
 
-### Start Menu Integration
+### Linux Desktop Integration
 
-#### Create Start Menu Shortcut
-1. **Open Start Menu folder**:
-   - Press `Win+R`
-   - Type `shell:programs`
-   - Press Enter
+#### Desktop Entry
+Create `/usr/share/applications/displayswitch-pro.desktop`:
+```ini
+[Desktop Entry]
+Name=DisplaySwitch Pro
+Comment=Display configuration manager with ECS architecture
+Exec=/usr/local/bin/displayswitch-pro
+Icon=displayswitch-pro
+Type=Application
+Categories=System;Settings;HardwareSettings;
+Keywords=display;monitor;screen;configuration;
+Actions=PCMode;TVMode;Settings;
 
-2. **Create shortcut**:
-   - Right-click → New → Shortcut
-   - Location: `"C:\Program Files\DisplayManager\DisplayManager.exe"`
-   - Name: `Display Manager`
+[Desktop Action PCMode]
+Name=PC Mode (All Displays)
+Exec=/usr/local/bin/displayswitch-pro pc
 
-3. **Set icon** (optional):
-   - Right-click shortcut → Properties
-   - Change Icon → Browse to `DisplayManager.exe`
-   - Select built-in icon
+[Desktop Action TVMode]
+Name=TV Mode (Single Display)
+Exec=/usr/local/bin/displayswitch-pro tv
 
-#### Create Folder Organization
+[Desktop Action Settings]
+Name=Open Settings
+Exec=/usr/local/bin/displayswitch-pro --settings
 ```
-Start Menu\Programs\
-└── Display Manager\
-    ├── Display Manager.lnk
-    ├── PC Mode.lnk
-    ├── TV Mode.lnk
-    └── Uninstall.lnk
+
+#### System Service (systemd)
+Create `~/.config/systemd/user/displayswitch-pro.service`:
+```ini
+[Unit]
+Description=DisplaySwitch Pro - ECS Display Manager
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/displayswitch-pro --daemon
+Restart=on-failure
+RestartSec=5
+
+# F# ECS benefits: Single process, low memory footprint
+MemoryMax=100M
+CPUQuota=10%
+
+[Install]
+WantedBy=default.target
 ```
 
-### Desktop Shortcuts
+Enable service:
+```bash
+systemctl --user enable displayswitch-pro.service
+systemctl --user start displayswitch-pro.service
+```
 
-#### PC Mode Shortcut
-1. **Create shortcut**:
-   - Right-click desktop → New → Shortcut
-   - Location: `"C:\Program Files\DisplayManager\DisplayManager.exe" pc`
-   - Name: `PC Mode (All Displays)`
+### Keyboard Shortcuts
 
-2. **Set properties**:
-   - Right-click shortcut → Properties
-   - Shortcut key: `Ctrl+Alt+P` (optional)
-   - Run: `Normal window`
-   - Comment: `Switch to PC mode with all displays`
+#### Global Hotkeys (Cross-Platform)
+The ECS architecture allows consistent hotkey handling across platforms:
 
-#### TV Mode Shortcut
-1. **Create shortcut**:
-   - Right-click desktop → New → Shortcut
-   - Location: `"C:\Program Files\DisplayManager\DisplayManager.exe" tv`
-   - Name: `TV Mode`
+```yaml
+# ~/.config/displayswitch-pro/hotkeys.yaml
+hotkeys:
+  pc_mode:
+    keys: ["Ctrl", "Alt", "P"]
+    action: "switch_mode pc"
+    description: "Switch to PC mode (all displays)"
+  
+  tv_mode:
+    keys: ["Ctrl", "Alt", "T"]
+    action: "switch_mode tv"
+    description: "Switch to TV mode (single display)"
+  
+  cycle_displays:
+    keys: ["Ctrl", "Alt", "D"]
+    action: "cycle_displays"
+    description: "Cycle through display configurations"
+  
+  reload_config:
+    keys: ["Ctrl", "Alt", "R"]
+    action: "reload_config"
+    description: "Reload configuration (functional hot-reload)"
+```
 
-2. **Set properties**:
-   - Right-click shortcut → Properties
-   - Shortcut key: `Ctrl+Alt+T` (optional)
-   - Run: `Normal window`
-   - Comment: `Switch to TV mode (single display)`
+#### Desktop Environment Integration
+```bash
+# GNOME
+gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/']"
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/ name 'PC Mode'
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/ command 'displayswitch-pro pc'
+gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/ binding '<Ctrl><Alt>p'
+
+# KDE Plasma
+# Use System Settings → Shortcuts → Custom Shortcuts
+```
 
 ### Taskbar Integration
 
@@ -142,25 +216,51 @@ private void ConfigureJumpList()
 
 ## Auto-Start Configuration
 
-### Windows Startup Integration
+### Linux Auto-Start
 
-#### Method 1: Startup Folder
-1. **Open Startup folder**:
-   - Press `Win+R`
-   - Type `shell:startup`
-   - Press Enter
+#### Method 1: XDG Autostart (Desktop Environments)
+Create `~/.config/autostart/displayswitch-pro.desktop`:
+```ini
+[Desktop Entry]
+Type=Application
+Exec=/usr/local/bin/displayswitch-pro --daemon
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=DisplaySwitch Pro
+Comment=Start DisplaySwitch Pro on login
+```
 
-2. **Create shortcut**:
-   - Copy `DisplayManager.exe` shortcut to startup folder
-   - Application will start minimized to system tray
+#### Method 2: Shell Profile
+Add to `~/.bashrc` or `~/.zshrc`:
+```bash
+# Start DisplaySwitch Pro daemon if not running
+if ! pgrep -x "displayswitch-pro" > /dev/null; then
+    displayswitch-pro --daemon &
+fi
+```
 
-#### Method 2: Registry Entry
-```batch
-@echo off
-echo Adding DisplayManager to Windows startup...
-reg add "HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run" /v "DisplayManager" /t REG_SZ /d "\"C:\Program Files\DisplayManager\DisplayManager.exe\"" /f
-echo DisplayManager added to startup.
-pause
+#### Method 3: Window Manager Integration
+```bash
+# i3/Sway
+exec --no-startup-id displayswitch-pro --daemon
+
+# AwesomeWM
+awful.spawn.with_shell("displayswitch-pro --daemon")
+
+# bspwm
+bspc rule -a displayswitch-pro state=floating
+displayswitch-pro --daemon &
+```
+
+### Windows Auto-Start
+```powershell
+# PowerShell script for Windows
+$Action = New-ScheduledTaskAction -Execute "displayswitch-pro.exe" -Argument "--daemon"
+$Trigger = New-ScheduledTaskTrigger -AtLogOn
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+Register-ScheduledTask -TaskName "DisplaySwitchPro" -Action $Action -Trigger $Trigger -Settings $Settings
 ```
 
 #### Method 3: Task Scheduler
@@ -230,32 +330,62 @@ pause
 
 ## Configuration Directory Setup
 
-### Default Configuration Location
+### Cross-Platform Configuration Locations
+
+#### Linux (Primary)
 ```
-%APPDATA%\DisplayManager\
-├── configs\
-│   ├── work_setup.json
-│   ├── gaming_setup.json
-│   └── backup_configs\
-├── logs\
-│   └── displaymanager.log
-└── settings.json
+~/.config/displayswitch-pro/
+├── config.toml           # Main configuration (immutable)
+├── profiles/             # Display profiles
+│   ├── work.toml
+│   ├── gaming.toml
+│   └── presentation.toml
+├── events/               # Event history (append-only)
+│   └── 2025-01-25.log   # Daily event logs
+└── state/                # Current state snapshots
+    └── current.toml      # Latest state
 ```
 
-### Custom Configuration Location
-```csharp
-// Allow custom config directory via environment variable
-private string GetConfigPath()
-{
-    string customPath = Environment.GetEnvironmentVariable("DISPLAYMANAGER_CONFIG");
-    if (!string.IsNullOrEmpty(customPath) && Directory.Exists(customPath))
-        return customPath;
-    
-    return Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "DisplayManager"
-    );
+#### Configuration Benefits with F# ECS
+```fsharp
+// Immutable configuration with type safety
+type Config = {
+    Version: string
+    Profiles: Profile list
+    Hotkeys: Hotkey list
+    EventStore: EventStoreConfig
 }
+
+// Event sourcing for configuration changes
+type ConfigEvent =
+    | ProfileAdded of Profile
+    | ProfileRemoved of string
+    | HotkeyChanged of Hotkey
+    | SettingUpdated of string * obj
+
+// Pure function for config updates
+let updateConfig (config: Config) (event: ConfigEvent) : Config =
+    match event with
+    | ProfileAdded profile -> 
+        { config with Profiles = profile :: config.Profiles }
+    | ProfileRemoved name ->
+        { config with Profiles = config.Profiles |> List.filter (fun p -> p.Name <> name) }
+    | HotkeyChanged hotkey ->
+        { config with Hotkeys = updateHotkey config.Hotkeys hotkey }
+    | SettingUpdated (key, value) ->
+        updateSetting config key value
+```
+
+### Environment Variables
+```bash
+# Override config location
+export DISPLAYSWITCH_PRO_CONFIG="$HOME/.config/displayswitch-pro"
+
+# Enable debug mode
+export DISPLAYSWITCH_PRO_DEBUG=1
+
+# Event store location
+export DISPLAYSWITCH_PRO_EVENTS="/var/log/displayswitch-pro/events"
 ```
 
 ## Network Deployment
@@ -341,23 +471,51 @@ if ($AutoStart) { Write-Host "Auto-start enabled" -ForegroundColor Yellow }
 
 ## Uninstallation
 
-### Manual Uninstallation
-1. **Stop the application**:
-   - Right-click system tray icon → Exit
-   - Or close main window
+### Linux Uninstallation
 
-2. **Remove files**:
-   - Delete installation directory
-   - Delete configuration directory (optional)
+#### Single Binary Removal
+```bash
+# Stop the service
+systemctl --user stop displayswitch-pro.service
+systemctl --user disable displayswitch-pro.service
 
-3. **Remove shortcuts**:
-   - Delete Start Menu shortcuts
-   - Delete Desktop shortcuts
-   - Remove from taskbar
+# Remove binary
+sudo rm /usr/local/bin/displayswitch-pro
+# or
+rm ~/.local/bin/displayswitch-pro
 
-4. **Remove registry entries**:
-   - Remove startup entry
-   - Remove file associations
+# Remove desktop entries
+rm ~/.local/share/applications/displayswitch-pro.desktop
+rm ~/.config/autostart/displayswitch-pro.desktop
+
+# Optional: Remove configuration and event history
+rm -rf ~/.config/displayswitch-pro
+```
+
+#### Package Manager Removal
+```bash
+# Arch Linux
+yay -R displayswitch-pro
+
+# Ubuntu/Debian
+sudo apt remove displayswitch-pro
+
+# Fedora
+sudo dnf remove displayswitch-pro
+
+# Nix
+nix-env -e displayswitch-pro
+```
+
+### Configuration Preservation
+The ECS event store allows easy backup and restoration:
+```bash
+# Backup event history before uninstall
+tar -czf displayswitch-pro-backup.tar.gz ~/.config/displayswitch-pro/events/
+
+# Restore on reinstall
+tar -xzf displayswitch-pro-backup.tar.gz -C ~/.config/displayswitch-pro/
+```
 
 ### Automated Uninstallation Script
 ```batch
@@ -494,43 +652,72 @@ pause
 ## Future Installation Enhancements
 
 ### Planned Features
-- **MSI Installer**: Windows Installer package
-- **Chocolatey Package**: Package manager support
-- **Winget Support**: Windows Package Manager
-- **Auto-Update**: Built-in update mechanism
-- **Custom Installer**: Branded installation experience
+- **Flatpak/Snap**: Universal Linux packages
+- **AppImage**: Portable Linux format
+- **Reproducible Builds**: Nix flakes support
+- **Binary Diff Updates**: Minimal update downloads
+- **P2P Updates**: Distributed update mechanism
 
-### Installation Metrics
-```csharp
-// Track installation success
-private void LogInstallation()
-{
-    var installInfo = new
-    {
-        Version = Application.ProductVersion,
-        InstallPath = Application.ExecutablePath,
-        InstallTime = DateTime.Now,
-        OSVersion = Environment.OSVersion.VersionString,
-        Architecture = Environment.Is64BitOperatingSystem ? "x64" : "x86",
-        UserName = Environment.UserName,
-        MachineName = Environment.MachineName
-    };
-    
-    // Log to file or telemetry service
-    LogInstallationInfo(installInfo);
+### Installation Benefits with F# ECS
+
+#### Single Binary Advantages
+```fsharp
+// Self-contained deployment
+type DeploymentInfo = {
+    Binary: byte[]
+    Checksum: string
+    Platform: Platform
+    Architecture: Architecture
+    CompressedSize: int64
+    UncompressedSize: int64
 }
+
+// Immutable installation record
+type InstallationEvent =
+    | Installed of version: string * path: string * timestamp: DateTime
+    | Updated of fromVersion: string * toVersion: string * timestamp: DateTime
+    | Removed of version: string * timestamp: DateTime
+
+// Pure installation verification
+let verifyInstallation (path: string) : Result<InstallationInfo, InstallationError> =
+    match File.Exists(path) with
+    | false -> Error (BinaryNotFound path)
+    | true ->
+        let checksum = computeChecksum path
+        let version = extractVersion path
+        Ok { Path = path; Version = version; Checksum = checksum }
+```
+
+#### Cross-Platform Package Generation
+```bash
+# Single build script for all platforms
+./build.sh --release --all-platforms
+
+# Outputs:
+# - displayswitch-pro-linux-x64
+# - displayswitch-pro-linux-arm64
+# - displayswitch-pro-win-x64.exe
+# - displayswitch-pro-macos-universal
 ```
 
 ## Integration Points
 
 ### Related Components
-- **[Build System](build-system.md)**: Produces installable artifacts
-- **[Configuration Management](config-management.md)**: Sets up configuration directories
-- **[System Tray](system-tray.md)**: Provides always-available access after installation
-- **[Troubleshooting](troubleshooting.md)**: Handles installation-related issues
+- **[Build System](build-system.md)**: F# build pipeline for single binary
+- **[Configuration Management](config-management.md)**: Immutable config with event sourcing
+- **[System Tray](system-tray.md)**: Native tray integration per platform
+- **[Troubleshooting](troubleshooting.md)**: Functional debugging with event replay
+- **[Advanced Features](advanced-features.md)**: Plugin system via functional composition
 
-### Post-Installation Flow
-1. **Installation** → File Deployment → Registry Setup → Shortcut Creation
-2. **First Launch** → Configuration Directory Creation → Initial Setup
-3. **User Onboarding** → Feature Discovery → Configuration Testing
-4. **System Integration** → Startup Configuration → Usage Monitoring
+### Post-Installation Flow (ECS Architecture)
+1. **Installation** → Single Binary → Platform Detection → Service Registration
+2. **First Launch** → Initialize ECS World → Load Event History → Restore State
+3. **User Onboarding** → Display Profiles → Hotkey Setup → Event Recording
+4. **System Integration** → Display Server Connection → Event Stream → State Updates
+
+### Functional Benefits
+- **Reproducible State**: Event history allows exact state recreation
+- **Time-Travel Debugging**: Replay events to debug issues
+- **Zero Configuration**: Smart defaults with override capability
+- **Hot Reload**: Configuration changes without restart
+- **Crash Recovery**: Automatic state restoration from events
