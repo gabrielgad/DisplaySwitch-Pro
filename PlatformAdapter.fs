@@ -37,9 +37,9 @@ type CrossPlatformAdapter() =
                         Id = "DISPLAY3"
                         Name = "Vertical Monitor"
                         Resolution = { Width = 1080; Height = 1920; RefreshRate = 60 }
-                        Position = { X = 3840; Y = -420 }
+                        Position = { X = 3500; Y = 0 }  // Start on grid (350px GUI = 3500 display)
                         IsPrimary = false
-                        IsEnabled = false
+                        IsEnabled = true  // Enable for testing
                     }
                 ]
             with

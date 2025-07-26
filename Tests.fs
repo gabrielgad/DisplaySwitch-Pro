@@ -155,16 +155,66 @@ let coreAlgorithmTests =
             let rect3 = (50.0, 50.0, 100.0, 100.0)
             Expect.isTrue (checkRectangleOverlap rect1 rect3) "Overlapping rectangles should collide"
             
-        testCase "Grid snapping algorithm precision" <| fun _ ->
-            let gridPixelSize = 50.0  // Fixed grid size as in GUI
-            let snapToGrid value =
-                System.Math.Round(value / gridPixelSize : float) * gridPixelSize
+        testCase "Adaptive grid algorithm precision" <| fun _ ->
+            let intermediateGridSize = 20.0  // New adaptive grid size
+            let snapToIntermediateGrid value =
+                System.Math.Round(value / intermediateGridSize : float) * intermediateGridSize
             
-            // Test grid snapping with fixed 50px grid
-            Expect.equal (snapToGrid 23.7) 0.0 "Should snap to nearest 50px grid point (0)"
-            Expect.equal (snapToGrid 37.5) 50.0 "Should snap to nearest 50px grid point (50)"
-            Expect.equal (snapToGrid 75.0) 50.0 "Should snap to nearest 50px grid point (50)"
-            Expect.equal (snapToGrid 125.0) 150.0 "Should snap to nearest 50px grid point (150)"
+            // Test adaptive grid snapping with 20px intermediate grid
+            Expect.equal (snapToIntermediateGrid 8.5) 0.0 "Should snap to nearest 20px grid point (0)"
+            Expect.equal (snapToIntermediateGrid 15.0) 20.0 "Should snap to nearest 20px grid point (20)"
+            Expect.equal (snapToIntermediateGrid 35.0) 40.0 "Should snap to nearest 20px grid point (40)"
+            Expect.equal (snapToIntermediateGrid 50.0) 60.0 "Should snap to nearest 20px grid point (60)"
+            Expect.equal (snapToIntermediateGrid 60.0) 60.0 "Should snap exactly to grid point (60)"
+            
+        testCase "Display edge calculation algorithm" <| fun _ ->
+            // Test display edge calculation for adaptive grid
+            let scale = 0.1
+            let display1 = {
+                Id = "TEST1"
+                Name = "Test Display 1"
+                Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
+                Position = { X = 0; Y = 0 }
+                IsPrimary = true
+                IsEnabled = true
+            }
+            let display2 = {
+                Id = "TEST2"
+                Name = "Test Display 2"
+                Resolution = { Width = 2560; Height = 1440; RefreshRate = 60 }
+                Position = { X = 1920; Y = -180 }
+                IsPrimary = false
+                IsEnabled = true
+            }
+            
+            let calculateDisplayEdges displays =
+                displays
+                |> List.filter (fun d -> d.IsEnabled)
+                |> List.collect (fun display ->
+                    let x = float display.Position.X * scale
+                    let y = float display.Position.Y * scale
+                    let width = float display.Resolution.Width * scale
+                    let height = float display.Resolution.Height * scale
+                    [
+                        ("vertical", x)           // Left edge
+                        ("vertical", x + width)   // Right edge
+                        ("horizontal", y)         // Top edge
+                        ("horizontal", y + height) // Bottom edge
+                    ])
+                |> List.distinct
+                |> List.sort
+            
+            let edges = calculateDisplayEdges [display1; display2]
+            let verticalEdges = edges |> List.filter (fun (orientation, _) -> orientation = "vertical") |> List.map snd
+            let horizontalEdges = edges |> List.filter (fun (orientation, _) -> orientation = "horizontal") |> List.map snd
+            
+            // Expected vertical edges: 0.0 (display1 left), 192.0 (display1 right), 192.0 (display2 left), 448.0 (display2 right)
+            // After distinct: [0.0; 192.0; 448.0]
+            Expect.equal verticalEdges [0.0; 192.0; 448.0] "Should calculate correct vertical display edges"
+            
+            // Expected horizontal edges: 0.0 (display1 top), 108.0 (display1 bottom), -18.0 (display2 top), 126.0 (display2 bottom)
+            // After sort: [-18.0; 0.0; 108.0; 126.0]
+            Expect.equal horizontalEdges [-18.0; 0.0; 108.0; 126.0] "Should calculate correct horizontal display edges"
             
         testCase "Edge-to-edge snap position calculation" <| fun _ ->
             // Test edge-to-edge snapping positions
@@ -183,16 +233,85 @@ let coreAlgorithmTests =
             Expect.equal bottomEdgeSnapX 0.0 "Bottom edge snap should align to left X=0"
             Expect.equal bottomEdgeSnapY 108.0 "Bottom edge snap should position at Y=108"
             
+        testCase "Edge snapping priority over grid snapping" <| fun _ ->
+            // Test that display edge snapping takes priority over intermediate grid snapping
+            let snapProximityThreshold = 25.0
+            let intermediateGridSize = 20.0
+            
+            let snapToDisplayEdgeOrGrid displayEdges value isVertical =
+                let relevantEdges = 
+                    displayEdges 
+                    |> List.filter (fun (orientation, _) -> 
+                        (isVertical && orientation = "vertical") || 
+                        (not isVertical && orientation = "horizontal"))
+                    |> List.map snd
+                
+                // First try to snap to display edges (priority)
+                let edgeSnap = 
+                    relevantEdges
+                    |> List.tryFind (fun edge -> abs(edge - value) <= snapProximityThreshold)
+                
+                match edgeSnap with
+                | Some edge -> edge
+                | None -> 
+                    // Fall back to intermediate grid
+                    System.Math.Round(value / intermediateGridSize) * intermediateGridSize
+            
+            let displayEdges = [("vertical", 192.0); ("horizontal", 108.0)]
+            
+            // Test edge snapping priority - value near display edge should snap to edge
+            let result1 = snapToDisplayEdgeOrGrid displayEdges 185.0 true  // Near vertical edge at 192
+            Expect.equal result1 192.0 "Should snap to display edge (192) instead of grid (180 or 200)"
+            
+            // Test grid fallback - value far from edges should snap to grid
+            let result2 = snapToDisplayEdgeOrGrid displayEdges 35.0 true  // Far from any edge
+            Expect.equal result2 40.0 "Should snap to intermediate grid (40) when far from edges"
+            
         testCase "Snap proximity threshold validation" <| fun _ ->
-            let snapProximityThreshold = 25.0  // As defined in GUI
+            let snapProximityThreshold = 25.0  // Updated threshold in GUI
             let calculateDistance (x1, y1) (x2, y2) =
                 System.Math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
             
-            let distance1 = calculateDistance (0.0, 0.0) (20.0, 15.0)  // ~25 distance
-            let distance2 = calculateDistance (0.0, 0.0) (30.0, 20.0)  // ~36 distance
+            let distance1 = calculateDistance (0.0, 0.0) (15.0, 20.0)  // 25 distance
+            let distance2 = calculateDistance (0.0, 0.0) (30.0, 40.0)  // 50 distance
             
-            Expect.isTrue (distance1 <= snapProximityThreshold) "Distance ~25 should be within threshold"
-            Expect.isFalse (distance2 <= snapProximityThreshold) "Distance ~36 should be outside threshold"
+            Expect.isTrue (distance1 <= snapProximityThreshold) "Distance 25 should be within threshold"
+            Expect.isFalse (distance2 <= snapProximityThreshold) "Distance 50 should be outside threshold"
+            
+        testCase "Bounds confinement" <| fun _ ->
+            let canvasWidth, canvasHeight = 800.0, 600.0
+            let displayWidth, displayHeight = 192.0, 108.0
+            
+            // Test bounds function
+            let confineToCanvas (x, y) =
+                let boundedX = max 0.0 (min x (canvasWidth - displayWidth))
+                let boundedY = max 0.0 (min y (canvasHeight - displayHeight))
+                (boundedX, boundedY)
+            
+            // Test various positions
+            let (x1, y1) = confineToCanvas (-50.0, -25.0)  // Out of bounds negative
+            let (x2, y2) = confineToCanvas (850.0, 650.0)  // Out of bounds positive
+            let (x3, y3) = confineToCanvas (100.0, 200.0)  // Within bounds
+            
+            Expect.equal (x1, y1) (0.0, 0.0) "Negative positions should be confined to (0,0)"
+            Expect.equal (x2, y2) (608.0, 492.0) "Excessive positions should be confined to canvas bounds"
+            Expect.equal (x3, y3) (100.0, 200.0) "Valid positions should remain unchanged"
+            
+        testCase "Vertical monitor alignment with horizontal displays" <| fun _ ->
+            let horizontalDisplay = (0.0, 0.0, 192.0, 108.0)  // 1920x1080
+            let verticalMonitor = (108.0, 192.0)              // 1080x1920
+            
+            let (hx, hy, hw, hh) = horizontalDisplay
+            let (vw, vh) = verticalMonitor
+            
+            // Test vertical monitor positioned to the right of horizontal display
+            let rightAlignedX = hx + hw  // 192.0
+            let topAlignedY = hy         // 0.0
+            let bottomAlignedY = hy + hh - vh  // 108 - 192 = -84 (should be confined)
+            
+            Expect.equal rightAlignedX 192.0 "Vertical monitor should position at X=192 for right alignment"
+            Expect.equal topAlignedY 0.0 "Top alignment should position at Y=0"
+            Expect.equal bottomAlignedY -84.0 "Bottom alignment calculation (before bounds confinement)"
     ]
 
 // Test runner - call this function to run tests programmatically
