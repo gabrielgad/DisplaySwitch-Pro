@@ -536,45 +536,30 @@ module GUI =
         
         stackPanel
 
-    let createPresetButtons (presets: string list) (onPresetClick: string -> unit) =
+    let createPresetPanel (presets: string list) (onPresetClick: string -> unit) (onPresetDelete: string -> unit) =
         let colors = getThemeColors currentTheme
-        let stackPanel = StackPanel()
-        stackPanel.Orientation <- Orientation.Vertical
-        stackPanel.Margin <- Thickness(15.0)
+        let mainPanel = StackPanel()
+        mainPanel.Orientation <- Orientation.Vertical
+        mainPanel.Margin <- Thickness(15.0)
         
+        // Title
         let titleText = TextBlock()
-        titleText.Text <- "💾 Saved Presets"
+        titleText.Text <- "💾 Display Presets"
         titleText.FontWeight <- FontWeight.Bold
         titleText.FontSize <- 16.0
         titleText.Foreground <- SolidColorBrush(colors.Text) :> IBrush
         titleText.Margin <- Thickness(0.0, 0.0, 0.0, 15.0)
-        stackPanel.Children.Add(titleText)
+        mainPanel.Children.Add(titleText)
         
-        for preset in presets do
-            let button = Button()
-            button.Content <- preset
-            button.Margin <- Thickness(0.0, 0.0, 0.0, 8.0)
-            button.HorizontalAlignment <- HorizontalAlignment.Stretch
-            button.Height <- 35.0
-            button.FontSize <- 13.0
-            button.CornerRadius <- CornerRadius(6.0)
-            
-            // Theme-aware button styling
-            button.Background <- SolidColorBrush(if currentTheme = Light then colors.Surface else colors.Surface) :> IBrush
-            button.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
-            button.BorderThickness <- Thickness(1.0)
-            button.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-            
-            button.Click.Add(fun _ -> onPresetClick preset)
-            stackPanel.Children.Add(button)
-        
+        // Save button at top
         let saveButton = Button()
-        saveButton.Content <- "➕ Save Current as Preset"
-        saveButton.Margin <- Thickness(0.0, 15.0, 0.0, 0.0)
+        saveButton.Content <- "➕ Save Current Layout"
+        saveButton.Margin <- Thickness(0.0, 0.0, 0.0, 15.0)
         saveButton.Height <- 40.0
         saveButton.FontSize <- 14.0
         saveButton.FontWeight <- FontWeight.SemiBold
         saveButton.CornerRadius <- CornerRadius(6.0)
+        saveButton.HorizontalAlignment <- HorizontalAlignment.Stretch
         
         // Theme-aware accent button gradient
         let saveGradient = LinearGradientBrush()
@@ -588,9 +573,83 @@ module GUI =
         saveButton.BorderThickness <- Thickness(1.0)
         saveButton.Foreground <- Brushes.White
         saveButton.Click.Add(fun _ -> onPresetClick "SAVE_NEW")
-        stackPanel.Children.Add(saveButton)
+        mainPanel.Children.Add(saveButton)
         
-        stackPanel
+        // Presets list header
+        let listHeader = TextBlock()
+        listHeader.Text <- "Saved Layouts:"
+        listHeader.FontWeight <- FontWeight.Medium
+        listHeader.FontSize <- 13.0
+        listHeader.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
+        listHeader.Margin <- Thickness(0.0, 0.0, 0.0, 8.0)
+        mainPanel.Children.Add(listHeader)
+        
+        // Scrollable preset list
+        let scrollViewer = ScrollViewer()
+        scrollViewer.Height <- 300.0
+        scrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        scrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        
+        let presetList = StackPanel()
+        presetList.Orientation <- Orientation.Vertical
+        
+        if presets.IsEmpty then
+            let emptyMessage = TextBlock()
+            emptyMessage.Text <- "No saved layouts yet"
+            emptyMessage.FontSize <- 12.0
+            emptyMessage.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
+            emptyMessage.TextAlignment <- TextAlignment.Center
+            emptyMessage.Margin <- Thickness(0.0, 20.0, 0.0, 0.0)
+            presetList.Children.Add(emptyMessage)
+        else
+            for preset in presets do
+                let presetCard = Border()
+                presetCard.Background <- SolidColorBrush(if currentTheme = Light then Color.FromRgb(249uy, 250uy, 251uy) else colors.Surface) :> IBrush
+                presetCard.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+                presetCard.BorderThickness <- Thickness(1.0)
+                presetCard.CornerRadius <- CornerRadius(6.0)
+                presetCard.Margin <- Thickness(0.0, 0.0, 0.0, 6.0)
+                presetCard.Padding <- Thickness(10.0, 8.0, 8.0, 8.0)
+                
+                let cardGrid = Grid()
+                cardGrid.ColumnDefinitions.Add(ColumnDefinition())
+                cardGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
+                
+                let presetButton = Button()
+                presetButton.Content <- preset
+                presetButton.Background <- Brushes.Transparent
+                presetButton.BorderThickness <- Thickness(0.0)
+                presetButton.HorizontalAlignment <- HorizontalAlignment.Stretch
+                presetButton.HorizontalContentAlignment <- HorizontalAlignment.Left
+                presetButton.FontSize <- 13.0
+                presetButton.Foreground <- SolidColorBrush(colors.Text) :> IBrush
+                presetButton.Cursor <- new Cursor(StandardCursorType.Hand)
+                presetButton.Click.Add(fun _ -> onPresetClick preset)
+                Grid.SetColumn(presetButton, 0)
+                
+                let deleteButton = Button()
+                deleteButton.Content <- "✕"
+                deleteButton.Width <- 24.0
+                deleteButton.Height <- 24.0
+                deleteButton.FontSize <- 12.0
+                deleteButton.CornerRadius <- CornerRadius(12.0)
+                deleteButton.Background <- SolidColorBrush(Color.FromRgb(239uy, 68uy, 68uy)) :> IBrush
+                deleteButton.Foreground <- Brushes.White
+                deleteButton.BorderThickness <- Thickness(0.0)
+                deleteButton.Cursor <- new Cursor(StandardCursorType.Hand)
+                ToolTip.SetTip(deleteButton, "Delete this preset")
+                deleteButton.Click.Add(fun _ -> onPresetDelete preset)
+                Grid.SetColumn(deleteButton, 1)
+                
+                cardGrid.Children.Add(presetButton)
+                cardGrid.Children.Add(deleteButton)
+                presetCard.Child <- cardGrid
+                presetList.Children.Add(presetCard)
+        
+        scrollViewer.Content <- presetList
+        mainPanel.Children.Add(scrollViewer)
+        
+        mainPanel
 
     let rec createMainWindow (world: World) (adapter: IPlatformAdapter) =
         let colors = getThemeColors currentTheme
@@ -671,8 +730,16 @@ module GUI =
                         printfn "Saving preset: %s" name
                         dialog.Close()
                         
-                        // Preset saved successfully
+                        // Preset saved successfully - recreate window to show new preset
                         printfn "Preset saved successfully"
+                        let newWindow = createMainWindow currentWorld adapter
+                        match Application.Current.ApplicationLifetime with
+                        | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                            let oldWindow = desktop.MainWindow
+                            desktop.MainWindow <- newWindow
+                            newWindow.Show()
+                            oldWindow.Close()
+                        | _ -> ()
                 )
                 buttonPanel.Children.Add(saveButton)
                 
@@ -707,8 +774,16 @@ module GUI =
                         let updatedComponents = Components.addDisplay display currentWorld.Components
                         currentWorld <- { currentWorld with Components = updatedComponents }
                     
-                    // Data updated successfully
+                    // Data updated successfully - recreate window to show loaded preset
                     printfn "Preset loaded - display data updated"
+                    let newWindow = createMainWindow currentWorld adapter
+                    match Application.Current.ApplicationLifetime with
+                    | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                        let oldWindow = desktop.MainWindow
+                        desktop.MainWindow <- newWindow
+                        newWindow.Show()
+                        oldWindow.Close()
+                    | _ -> ()
                     
                     printfn "Loading preset: %s" presetName
                 | None ->
@@ -719,30 +794,29 @@ module GUI =
         mainPanel.Background <- SolidColorBrush(colors.Background) :> IBrush
         mainPanel.Margin <- Thickness(5.0)
         
-        // Left side - display info with theme-aware styling
-        let infoPanelActual = StackPanel()
-        infoPanelActual.Orientation <- Orientation.Vertical
-        infoPanelActual.Width <- 200.0
-        infoPanelActual.Margin <- Thickness(10.0)
-        infoPanelActual.Background <- SolidColorBrush(colors.Surface) :> IBrush
+        // Left side - display info panel
+        let infoPanel = StackPanel()
+        infoPanel.Orientation <- Orientation.Vertical
+        infoPanel.Width <- 220.0
+        infoPanel.Margin <- Thickness(15.0)
+        infoPanel.Background <- SolidColorBrush(colors.Surface) :> IBrush
+        
         let infoPanelBorder = Border()
-        infoPanelBorder.Child <- infoPanelActual
+        infoPanelBorder.Child <- infoPanel
         infoPanelBorder.Background <- SolidColorBrush(colors.Surface) :> IBrush
         infoPanelBorder.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
         infoPanelBorder.BorderThickness <- Thickness(1.0)
         infoPanelBorder.CornerRadius <- CornerRadius(8.0)
-        infoPanelBorder.Margin <- Thickness(5.0)
-        // Modern border styling without shadows
         
-        let infoTitleActual = TextBlock()
-        infoTitleActual.Text <- "📺 Display Information"
-        infoTitleActual.FontWeight <- FontWeight.Bold
-        infoTitleActual.FontSize <- 16.0
-        infoTitleActual.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-        infoTitleActual.Margin <- Thickness(15.0, 15.0, 15.0, 10.0)
-        infoPanelActual.Children.Add(infoTitleActual)
+        let infoTitle = TextBlock()
+        infoTitle.Text <- "📺 Display Information"
+        infoTitle.FontWeight <- FontWeight.Bold
+        infoTitle.FontSize <- 16.0
+        infoTitle.Foreground <- SolidColorBrush(colors.Text) :> IBrush
+        infoTitle.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
+        infoPanel.Children.Add(infoTitle)
         
-        // Simplified display toggle handler
+        // Display toggle handler with window recreation
         let onDisplayToggle displayId isEnabled =
             let display = currentWorld.Components.ConnectedDisplays.[displayId]
             let updatedDisplay = { display with IsEnabled = isEnabled }
@@ -750,74 +824,85 @@ module GUI =
             currentWorld <- { currentWorld with Components = updatedComponents }
             
             printfn "Display %s %s - updated in data model" displayId (if isEnabled then "enabled" else "disabled")
+            
+            // Recreate window to reflect changes
+            let newWindow = createMainWindow currentWorld adapter
+            match Application.Current.ApplicationLifetime with
+            | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                let oldWindow = desktop.MainWindow
+                desktop.MainWindow <- newWindow
+                newWindow.Show()
+                oldWindow.Close()
+            | _ -> ()
         
         let displayList = createDisplayListView displays onDisplayToggle
-        infoPanelActual.Children.Add(displayList)
+        infoPanel.Children.Add(displayList)
         
         DockPanel.SetDock(infoPanelBorder, Dock.Left)
         mainPanel.Children.Add(infoPanelBorder)
         
-        // Right side - presets with theme-aware styling
-        let presetPanel = createPresetButtons presets onPresetClick
-        presetPanel.Width <- 200.0
+        // Preset delete handler
+        let onPresetDelete presetName =
+            // Remove from world state
+            let updatedPresets = Map.remove presetName currentWorld.Components.SavedPresets
+            let updatedComponents = { currentWorld.Components with SavedPresets = updatedPresets }
+            currentWorld <- { currentWorld with Components = updatedComponents }
+            printfn "Deleted preset: %s" presetName
+            
+            // Recreate window to reflect changes
+            let newWindow = createMainWindow currentWorld adapter
+            match Application.Current.ApplicationLifetime with
+            | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+                let oldWindow = desktop.MainWindow
+                desktop.MainWindow <- newWindow
+                newWindow.Show()
+                oldWindow.Close()
+            | _ -> ()
+        
+        // Right side - presets panel
+        let presetPanel = createPresetPanel presets onPresetClick onPresetDelete
+        presetPanel.Width <- 240.0
         let presetPanelBorder = Border()
         presetPanelBorder.Child <- presetPanel
         presetPanelBorder.Background <- SolidColorBrush(colors.Surface) :> IBrush
         presetPanelBorder.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
         presetPanelBorder.BorderThickness <- Thickness(1.0)
         presetPanelBorder.CornerRadius <- CornerRadius(8.0)
-        presetPanelBorder.Margin <- Thickness(5.0)
-        // Modern preset panel styling without shadows
         DockPanel.SetDock(presetPanelBorder, Dock.Right)
         mainPanel.Children.Add(presetPanelBorder)
         
-        // Center - visual canvas with theme-aware styling
+        // Center - visual canvas
         let canvasContainer = Border()
         canvasContainer.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
         canvasContainer.BorderThickness <- Thickness(1.0)
         canvasContainer.CornerRadius <- CornerRadius(8.0)
-        canvasContainer.Margin <- Thickness(5.0)
         canvasContainer.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        // Modern canvas styling without shadows
         
         let displayCanvas = createDisplayCanvas displays onDisplayChanged
         canvasContainer.Child <- displayCanvas
         
         mainPanel.Children.Add(canvasContainer)
         
-        // Create status bar with theme toggle at bottom
-        let statusBar = Border()
-        statusBar.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        statusBar.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
-        statusBar.BorderThickness <- Thickness(0.0, 1.0, 0.0, 0.0)
-        statusBar.Height <- 35.0
-        DockPanel.SetDock(statusBar, Dock.Bottom)
+        // Theme toggle button in top-right corner
+        let themeToggleOverlay = Grid()
+        themeToggleOverlay.HorizontalAlignment <- HorizontalAlignment.Right
+        themeToggleOverlay.VerticalAlignment <- VerticalAlignment.Top
+        themeToggleOverlay.Margin <- Thickness(0.0, 10.0, 10.0, 0.0)
+        themeToggleOverlay.ZIndex <- 1000
         
-        let statusContent = Grid()
-        statusContent.Margin <- Thickness(10.0, 5.0, 10.0, 5.0)
-        
-        // Theme toggle button in status bar
         let themeToggleButton = Button()
         themeToggleButton.Content <- if currentTheme = Light then "🌙" else "☀️"
-        themeToggleButton.Width <- 30.0
-        themeToggleButton.Height <- 25.0
-        themeToggleButton.HorizontalAlignment <- HorizontalAlignment.Right
-        themeToggleButton.Background <- SolidColorBrush(colors.Background) :> IBrush
+        themeToggleButton.Width <- 40.0
+        themeToggleButton.Height <- 40.0
+        themeToggleButton.Background <- SolidColorBrush(colors.Surface) :> IBrush
         themeToggleButton.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        themeToggleButton.BorderThickness <- Thickness(1.0)
         themeToggleButton.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-        themeToggleButton.CornerRadius <- CornerRadius(3.0)
-        themeToggleButton.FontSize <- 14.0
+        themeToggleButton.CornerRadius <- CornerRadius(20.0)
+        themeToggleButton.FontSize <- 16.0
+        ToolTip.SetTip(themeToggleButton, "Toggle theme")
         
-        // Status text
-        let statusText = TextBlock()
-        statusText.Text <- "DisplaySwitch-Pro - Ready"
-        statusText.VerticalAlignment <- VerticalAlignment.Center
-        statusText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
-        statusText.FontSize <- 11.0
-        
-        statusContent.Children.Add(statusText)
-        statusContent.Children.Add(themeToggleButton)
-        statusBar.Child <- statusContent
+        themeToggleOverlay.Children.Add(themeToggleButton)
         
         themeToggleButton.Click.Add(fun _ ->
             // Toggle theme
@@ -836,10 +921,12 @@ module GUI =
             | _ -> ()
         )
         
-        // Add status bar to main panel
-        mainPanel.Children.Add(statusBar)
+        // Main container with overlay
+        let rootGrid = Grid()
+        rootGrid.Children.Add(mainPanel)
+        rootGrid.Children.Add(themeToggleOverlay)
         
-        window.Content <- mainPanel
+        window.Content <- rootGrid
         window
 
 // Simple Avalonia Application
