@@ -156,23 +156,43 @@ let coreAlgorithmTests =
             Expect.isTrue (checkRectangleOverlap rect1 rect3) "Overlapping rectangles should collide"
             
         testCase "Grid snapping algorithm precision" <| fun _ ->
-            let snapToGrid gridSize value =
-                System.Math.Round(value / gridSize : float) * gridSize
+            let gridPixelSize = 50.0  // Fixed grid size as in GUI
+            let snapToGrid value =
+                System.Math.Round(value / gridPixelSize : float) * gridPixelSize
             
-            // Test various grid sizes and values
-            Expect.equal (snapToGrid 10.0 23.7) 20.0 "Should snap to nearest grid point"
-            Expect.equal (snapToGrid 25.0 37.5) 50.0 "Should handle exact midpoints"
-            Expect.equal (snapToGrid 5.0 12.2) 10.0 "Should work with smaller grid sizes"
+            // Test grid snapping with fixed 50px grid
+            Expect.equal (snapToGrid 23.7) 0.0 "Should snap to nearest 50px grid point (0)"
+            Expect.equal (snapToGrid 37.5) 50.0 "Should snap to nearest 50px grid point (50)"
+            Expect.equal (snapToGrid 75.0) 50.0 "Should snap to nearest 50px grid point (50)"
+            Expect.equal (snapToGrid 125.0) 150.0 "Should snap to nearest 50px grid point (150)"
             
-        testCase "Distance calculation for snap thresholds" <| fun _ ->
+        testCase "Edge-to-edge snap position calculation" <| fun _ ->
+            // Test edge-to-edge snapping positions
+            let display1X, display1Y, display1W, display1H = 0.0, 0.0, 192.0, 108.0  // 1920x1080 at 0.1 scale
+            let movingW, movingH = 192.0, 108.0  // Same size display being moved
+            
+            // Right edge snapping - moving display should be positioned at display1X + display1W
+            let rightEdgeSnapX = display1X + display1W
+            let rightEdgeSnapY = display1Y  // Aligned to top
+            Expect.equal rightEdgeSnapX 192.0 "Right edge snap should position at X=192"
+            Expect.equal rightEdgeSnapY 0.0 "Right edge snap should align to top Y=0"
+            
+            // Bottom edge snapping - moving display should be positioned at display1Y + display1H
+            let bottomEdgeSnapX = display1X  // Aligned to left
+            let bottomEdgeSnapY = display1Y + display1H
+            Expect.equal bottomEdgeSnapX 0.0 "Bottom edge snap should align to left X=0"
+            Expect.equal bottomEdgeSnapY 108.0 "Bottom edge snap should position at Y=108"
+            
+        testCase "Snap proximity threshold validation" <| fun _ ->
+            let snapProximityThreshold = 25.0  // As defined in GUI
             let calculateDistance (x1, y1) (x2, y2) =
                 System.Math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
             
-            let distance = calculateDistance (0.0, 0.0) (3.0, 4.0)
-            Expect.equal distance 5.0 "3-4-5 triangle should yield distance of 5"
+            let distance1 = calculateDistance (0.0, 0.0) (20.0, 15.0)  // ~25 distance
+            let distance2 = calculateDistance (0.0, 0.0) (30.0, 20.0)  // ~36 distance
             
-            let closeDistance = calculateDistance (100.0, 200.0) (103.0, 204.0)
-            Expect.isTrue (closeDistance < 10.0) "Close points should be within snap threshold"
+            Expect.isTrue (distance1 <= snapProximityThreshold) "Distance ~25 should be within threshold"
+            Expect.isFalse (distance2 <= snapProximityThreshold) "Distance ~36 should be outside threshold"
     ]
 
 // Test runner - call this function to run tests programmatically

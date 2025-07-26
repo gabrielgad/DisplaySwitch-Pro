@@ -86,20 +86,14 @@ module GUI =
         canvas.Width <- 800.0
         canvas.Height <- 600.0
         
-        // Enhanced snapping configuration
+        // Grid-based snapping configuration
         let mutable snapEnabled = true
-        let mutable snapGridSize = 10.0 // Snap to pixel grid (adjustable)
-        let mutable displaySnapThreshold = 15.0 // Snap displays within pixels of each other
-        let mutable edgeSnapThreshold = 10.0 // Snap to exact edge alignment
-        
-        // Make snap thresholds configurable
-        let updateSnapThreshold newThreshold =
-            displaySnapThreshold <- newThreshold
-            edgeSnapThreshold <- newThreshold * 0.67
+        let gridPixelSize = 50.0 // Fixed grid increment in GUI pixels (500 display pixels)
+        let snapProximityThreshold = 25.0 // Distance within which edge snapping activates
         
         let snapToGrid value =
             if snapEnabled then
-                Math.Round(value / snapGridSize) * snapGridSize
+                Math.Round(value / gridPixelSize) * gridPixelSize
             else
                 value
         
@@ -120,20 +114,23 @@ module GUI =
                         let displayWidth = float display.Resolution.Width * 0.1
                         let displayHeight = float display.Resolution.Height * 0.1
                         
-                        // Calculate potential snap positions and their distances
+                        // Focus on edge-to-edge snapping for proper alignment
                         let snapCandidates = [
-                            // Horizontal snapping (attach to left/right edges)
-                            (displayX + displayWidth, targetY) // Snap moving display to right of existing
-                            (displayX - movingWidth, targetY)  // Snap moving display to left of existing
-                            (displayX, targetY)                // Align left edges
-                            (targetX, displayY + displayHeight) // Snap moving display below existing
-                            (targetX, displayY - movingHeight)  // Snap moving display above existing
-                            (targetX, displayY)                // Align top edges
-                            // Edge-to-edge alignment for better arrangement
-                            (displayX + displayWidth, displayY) // Snap to top-right corner
-                            (displayX - movingWidth, displayY)  // Snap to top-left corner
-                            (displayX, displayY + displayHeight) // Snap to bottom-left corner
-                            (displayX + displayWidth, displayY - movingHeight) // Snap to bottom-right corner
+                            // Horizontal edge alignment - displays side by side
+                            (displayX + displayWidth, displayY)  // Move to right of display, aligned to top
+                            (displayX - movingWidth, displayY)   // Move to left of display, aligned to top
+                            (displayX + displayWidth, displayY + displayHeight - movingHeight)  // Right, aligned to bottom
+                            (displayX - movingWidth, displayY + displayHeight - movingHeight)   // Left, aligned to bottom
+                            
+                            // Vertical edge alignment - displays stacked
+                            (displayX, displayY + displayHeight) // Move below display, aligned to left
+                            (displayX, displayY - movingHeight)  // Move above display, aligned to left  
+                            (displayX + displayWidth - movingWidth, displayY + displayHeight) // Below, aligned to right
+                            (displayX + displayWidth - movingWidth, displayY - movingHeight)  // Above, aligned to right
+                            
+                            // Corner-to-corner snapping for more complex arrangements
+                            (displayX + displayWidth, displayY + displayHeight)  // Bottom-right corner
+                            (displayX - movingWidth, displayY - movingHeight)     // Top-left corner
                         ]
                         
                         for (candidateX, candidateY) in snapCandidates do
@@ -141,12 +138,8 @@ module GUI =
                             let distanceY = Math.Abs(candidateY - targetY)
                             let totalDistance = Math.Sqrt(distanceX * distanceX + distanceY * distanceY)
                             
-                            // Check if this candidate is within snap threshold and is better than current best
-                            let withinHorizontalThreshold = distanceX <= displaySnapThreshold
-                            let withinVerticalThreshold = distanceY <= displaySnapThreshold
-                            let withinEdgeThreshold = distanceX <= edgeSnapThreshold || distanceY <= edgeSnapThreshold
-                            
-                            if (withinHorizontalThreshold && withinVerticalThreshold) || withinEdgeThreshold then
+                            // Only snap if within reasonable proximity
+                            if totalDistance <= snapProximityThreshold then
                                 if totalDistance < bestSnapDistance then
                                     bestSnapDistance <- totalDistance
                                     bestSnapPoint <- Some (candidateX, candidateY)
@@ -229,84 +222,41 @@ module GUI =
                 (candidateX, candidateY)
 
         
-        // Enhanced grid lines for better visual reference
-        // Major grid lines every 100 pixels (corresponds to 1000 display pixels)
-        for i in 0..8 do
+        // Grid lines based on snap grid size (50px = 500 display pixels)
+        // Major grid lines every 50 pixels (snap grid)
+        for i in 0..(int (canvas.Width / gridPixelSize)) do
             let lineV = Line()
-            lineV.StartPoint <- Point(float i * 100.0, 0.0)
-            lineV.EndPoint <- Point(float i * 100.0, 600.0)
+            lineV.StartPoint <- Point(float i * gridPixelSize, 0.0)
+            lineV.EndPoint <- Point(float i * gridPixelSize, canvas.Height)
             lineV.Stroke <- if i = 0 then Brushes.Gray else Brushes.LightGray
-            lineV.StrokeThickness <- if i = 0 then 1.0 else 0.8
+            lineV.StrokeThickness <- if i = 0 then 1.0 else 0.6
             canvas.Children.Add(lineV)
             
+        for i in 0..(int (canvas.Height / gridPixelSize)) do
             let lineH = Line()
-            lineH.StartPoint <- Point(0.0, float i * 75.0)
-            lineH.EndPoint <- Point(800.0, float i * 75.0)
+            lineH.StartPoint <- Point(0.0, float i * gridPixelSize)
+            lineH.EndPoint <- Point(canvas.Width, float i * gridPixelSize)
             lineH.Stroke <- if i = 0 then Brushes.Gray else Brushes.LightGray
-            lineH.StrokeThickness <- if i = 0 then 1.0 else 0.8
+            lineH.StrokeThickness <- if i = 0 then 1.0 else 0.6
             canvas.Children.Add(lineH)
-        
-        // Minor grid lines for finer alignment (every 50 pixels)
-        for i in 1..15 do
-            if i % 2 <> 0 then // Only odd numbers to avoid overlap with major grid
-                let lineV = Line()
-                lineV.StartPoint <- Point(float i * 50.0, 0.0)
-                lineV.EndPoint <- Point(float i * 50.0, 600.0)
-                lineV.Stroke <- Brushes.Gainsboro
-                lineV.StrokeThickness <- 0.3
-                canvas.Children.Add(lineV)
-                
-        for i in 1..11 do
-            if (i * 75) % 150 <> 0 then // Avoid overlap with major grid
-                let lineH = Line()
-                lineH.StartPoint <- Point(0.0, float i * 37.5)
-                lineH.EndPoint <- Point(800.0, float i * 37.5)
-                lineH.Stroke <- Brushes.Gainsboro
-                lineH.StrokeThickness <- 0.3
-                canvas.Children.Add(lineH)
         
         // Enhanced grid lines with better visual feedback
         // No red snap guides needed - grid provides sufficient visual reference
         
-        // Enhanced snap controls
-        let snapControlPanel = StackPanel()
-        snapControlPanel.Orientation <- Orientation.Vertical
-        snapControlPanel.Background <- Brushes.White
-        snapControlPanel.Margin <- Thickness(5.0)
-        snapControlPanel.Opacity <- 0.9
-        Canvas.SetLeft(snapControlPanel, 10.0)
-        Canvas.SetTop(snapControlPanel, 10.0)
-        snapControlPanel.ZIndex <- 1000
-        
+        // Simple snap control
         let snapCheckBox = CheckBox()
-        snapCheckBox.Content <- "Enable Snapping"
+        snapCheckBox.Content <- "Grid Snapping"
         snapCheckBox.IsChecked <- System.Nullable<bool>(snapEnabled)
-        snapCheckBox.Margin <- Thickness(5.0)
+        snapCheckBox.Margin <- Thickness(10.0)
+        snapCheckBox.Background <- Brushes.White
+        snapCheckBox.Opacity <- 0.9
+        Canvas.SetLeft(snapCheckBox, 10.0)
+        Canvas.SetTop(snapCheckBox, 10.0)
+        snapCheckBox.ZIndex <- 1000
         snapCheckBox.IsCheckedChanged.Add(fun _ ->
             snapEnabled <- snapCheckBox.IsChecked.GetValueOrDefault()
         )
-        snapControlPanel.Children.Add(snapCheckBox)
-        
-        // Snap threshold slider
-        let thresholdLabel = TextBlock()
-        thresholdLabel.Text <- sprintf "Snap Distance: %.0f px" displaySnapThreshold
-        thresholdLabel.Margin <- Thickness(5.0, 2.0, 5.0, 0.0)
-        thresholdLabel.FontSize <- 10.0
-        snapControlPanel.Children.Add(thresholdLabel)
-        
-        let thresholdSlider = Slider()
-        thresholdSlider.Minimum <- 5.0
-        thresholdSlider.Maximum <- 30.0
-        thresholdSlider.Value <- displaySnapThreshold
-        thresholdSlider.Width <- 120.0
-        thresholdSlider.Margin <- Thickness(5.0, 0.0, 5.0, 5.0)
-        thresholdSlider.ValueChanged.Add(fun e ->
-            updateSnapThreshold e.NewValue
-            thresholdLabel.Text <- sprintf "Snap Distance: %.0f px" displaySnapThreshold
-        )
-        snapControlPanel.Children.Add(thresholdSlider)
-        
-        canvas.Children.Add(snapControlPanel)
+        canvas.Children.Add(snapCheckBox)
         
         // Track all visual displays for snapping
         let mutable visualDisplays = []
