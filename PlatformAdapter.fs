@@ -15,19 +15,17 @@ type CrossPlatformAdapter() =
             try
                 // For now, return mock data that represents real displays
                 // In a real implementation, this would call platform-specific APIs
-                let primaryDisplay = {
-                    Id = "DISPLAY1"
-                    Name = "Primary Monitor" 
-                    Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
-                    Position = { X = 0; Y = 0 }
-                    IsPrimary = true
-                    IsEnabled = true
-                }
-                
-                let displays = [primaryDisplay]
-                
-                if Environment.OSVersion.Platform = PlatformID.Win32NT then
-                    let secondaryDisplay = {
+                // Always return multiple displays for testing the visual arrangement
+                [
+                    {
+                        Id = "DISPLAY1"
+                        Name = "Primary Monitor" 
+                        Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
+                        Position = { X = 0; Y = 0 }
+                        IsPrimary = true
+                        IsEnabled = true
+                    }
+                    {
                         Id = "DISPLAY2"
                         Name = "Secondary Monitor"
                         Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
@@ -35,9 +33,15 @@ type CrossPlatformAdapter() =
                         IsPrimary = false
                         IsEnabled = true
                     }
-                    primaryDisplay :: [secondaryDisplay]
-                else
-                    displays
+                    {
+                        Id = "DISPLAY3"
+                        Name = "Vertical Monitor"
+                        Resolution = { Width = 1080; Height = 1920; RefreshRate = 60 }
+                        Position = { X = 3840; Y = -420 }
+                        IsPrimary = false
+                        IsEnabled = false
+                    }
+                ]
             with
             | ex -> 
                 printfn $"Warning: Could not detect displays: {ex.Message}"
