@@ -309,49 +309,60 @@ module GUI =
         
         mainPanel.Children.Add(canvasContainer)
         
-        let themeToggleOverlay = Grid()
-        themeToggleOverlay.HorizontalAlignment <- HorizontalAlignment.Right
-        themeToggleOverlay.VerticalAlignment <- VerticalAlignment.Top
-        themeToggleOverlay.Margin <- Thickness(0.0, 10.0, 10.0, 0.0)
-        themeToggleOverlay.ZIndex <- 1000
+        // Create status bar at bottom
+        let statusBar = Border()
+        statusBar.Height <- 35.0
+        statusBar.CornerRadius <- CornerRadius(0.0, 0.0, 12.0, 12.0)
+        statusBar.Background <- SolidColorBrush(Color.FromArgb(180uy, colors.Surface.R, colors.Surface.G, colors.Surface.B)) :> IBrush
+        statusBar.BorderBrush <- SolidColorBrush(Color.FromArgb(100uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
+        statusBar.BorderThickness <- Thickness(0.0, 1.0, 0.0, 0.0)
         
+        let statusPanel = DockPanel()
+        statusPanel.LastChildFill <- true
+        statusPanel.Margin <- Thickness(10.0, 5.0, 10.0, 5.0)
+        
+        // Theme toggle button (left side)
         let themeToggleButton = Button()
-        themeToggleButton.Content <- if Theme.currentTheme = Theme.Light then "🌙" else "☀️"
-        themeToggleButton.Width <- 45.0
-        themeToggleButton.Height <- 45.0
-        themeToggleButton.CornerRadius <- CornerRadius(22.5)
-        themeToggleButton.FontSize <- 18.0
-        themeToggleButton.Opacity <- 0.9
-        themeToggleButton.BorderThickness <- Thickness(1.0)
-        
-        let themeToggleGradient = RadialGradientBrush()
-        themeToggleGradient.Center <- RelativePoint(0.3, 0.3, RelativeUnit.Relative)
-        themeToggleGradient.Radius <- 1.0
-        
-        if Theme.currentTheme = Theme.Light then
-            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 255uy, 255uy, 255uy), 0.0))
-            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 240uy, 245uy, 250uy), 1.0))
-        else
-            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 60uy, 70uy, 85uy), 0.0))
-            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 40uy, 50uy, 65uy), 1.0))
-        
-        themeToggleButton.Background <- themeToggleGradient :> IBrush
-        themeToggleButton.BorderBrush <- SolidColorBrush(Color.FromArgb(150uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
-        themeToggleButton.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-        ToolTip.SetTip(themeToggleButton, "Toggle theme")
-        
-        themeToggleOverlay.Children.Add(themeToggleButton)
-        
+        themeToggleButton.Content <- if Theme.currentTheme = Theme.Light then "🌙 Dark" else "☀️ Light"
+        themeToggleButton.Width <- 80.0
+        themeToggleButton.Height <- 25.0
+        themeToggleButton.CornerRadius <- CornerRadius(12.0)
+        themeToggleButton.FontSize <- 11.0
+        themeToggleButton.Background <- SolidColorBrush(colors.Secondary) :> IBrush
+        themeToggleButton.Foreground <- Brushes.White
+        themeToggleButton.BorderThickness <- Thickness(0.0)
+        ToolTip.SetTip(themeToggleButton, "Toggle between light and dark theme")
         themeToggleButton.Click.Add(fun _ ->
             Theme.toggleTheme() |> ignore
             refreshMainWindowContent ()
         )
+        DockPanel.SetDock(themeToggleButton, Dock.Left)
+        statusPanel.Children.Add(themeToggleButton)
         
-        let rootGrid = Grid()
-        rootGrid.Children.Add(acrylicBorder)
-        rootGrid.Children.Add(themeToggleOverlay)
+        // Status text (center/right side)
+        let statusText = TextBlock()
+        statusText.Text <- sprintf "Ready • %d displays detected • %s theme" displays.Length (if Theme.currentTheme = Theme.Light then "Light" else "Dark")
+        statusText.FontSize <- 11.0
+        statusText.Foreground <- SolidColorBrush(colors.Text) :> IBrush
+        statusText.VerticalAlignment <- VerticalAlignment.Center
+        statusText.HorizontalAlignment <- HorizontalAlignment.Right
+        statusText.Opacity <- 0.8
+        statusPanel.Children.Add(statusText)
         
-        rootGrid
+        statusBar.Child <- statusPanel
+        
+        // Create root panel that contains everything
+        let rootPanel = DockPanel()
+        rootPanel.LastChildFill <- true
+        
+        // Status bar at the very bottom of window
+        DockPanel.SetDock(statusBar, Dock.Bottom)
+        rootPanel.Children.Add(statusBar)
+        
+        // Main content fills the rest
+        rootPanel.Children.Add(acrylicBorder)
+        
+        rootPanel
     
     let createMainWindow (world: World) (adapter: IPlatformAdapter) =
         let window = Window()
@@ -388,16 +399,31 @@ type App() =
         | :? IClassicDesktopStyleApplicationLifetime as desktop ->
             match worldData, adapterData with
             | Some world, Some adapter ->
-                desktop.MainWindow <- GUI.createMainWindow world adapter
+                let window = GUI.createMainWindow world adapter
+                desktop.MainWindow <- window
+                window.Show()
+                printfn "Window created and shown"
             | _ -> failwith "Application data not set"
-        | _ -> ()
+        | _ -> 
+            printfn "No desktop lifetime found"
         
         base.OnFrameworkInitializationCompleted()
 
 module AppRunner =
     let run (adapter: IPlatformAdapter) (world: World) =
         App.SetData(world, adapter)
-        AppBuilder
-            .Configure<App>()
-            .UsePlatformDetect()
-            .StartWithClassicDesktopLifetime([||])
+        try
+            printfn "Starting Avalonia application..."
+            let result = 
+                AppBuilder
+                    .Configure<App>()
+                    .UsePlatformDetect()
+                    .LogToTrace()
+                    .StartWithClassicDesktopLifetime([||])
+            printfn "Avalonia application finished with exit code: %d" result
+            result
+        with
+        | ex -> 
+            printfn "Error starting Avalonia: %s" ex.Message
+            printfn "Stack trace: %s" ex.StackTrace
+            1

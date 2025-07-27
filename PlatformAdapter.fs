@@ -13,38 +13,41 @@ type CrossPlatformAdapter() =
     interface IPlatformAdapter with
         member _.GetConnectedDisplays() =
             try
-                // For now, return mock data that represents real displays
-                // In a real implementation, this would call platform-specific APIs
-                // Always return multiple displays for testing the visual arrangement
-                [
-                    {
-                        Id = "DISPLAY1"
-                        Name = "Primary Monitor" 
-                        Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
-                        Position = { X = 0; Y = 0 }
-                        Orientation = Landscape
-                        IsPrimary = true
-                        IsEnabled = true
-                    }
-                    {
-                        Id = "DISPLAY2"
-                        Name = "Secondary Monitor"
-                        Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
-                        Position = { X = 1920; Y = 0 }
-                        Orientation = Landscape
-                        IsPrimary = false
-                        IsEnabled = true
-                    }
-                    {
-                        Id = "DISPLAY3"
-                        Name = "Vertical Monitor"
-                        Resolution = { Width = 1080; Height = 1920; RefreshRate = 60 }
-                        Position = { X = 3500; Y = 0 }  // Start on grid (350px GUI = 3500 display)
-                        Orientation = Portrait
-                        IsPrimary = false
-                        IsEnabled = true  // Enable for testing
-                    }
-                ]
+                // Simple cross-platform display detection
+                printfn "Detecting displays on %s..." (Environment.OSVersion.Platform.ToString())
+                
+                // Try to get DISPLAY environment variable for X11
+                let displayEnv = Environment.GetEnvironmentVariable("DISPLAY")
+                let isX11 = not (String.IsNullOrEmpty(displayEnv))
+                
+                if isX11 then
+                    printfn "X11 display detected: %s" displayEnv
+                    // In WSL/Linux with X11, we typically have one virtual display
+                    // Real multi-monitor detection would require X11 interop
+                    [
+                        {
+                            Id = "X11_PRIMARY"
+                            Name = sprintf "X11 Display (%s)" displayEnv
+                            Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
+                            Position = { X = 0; Y = 0 }
+                            Orientation = Landscape
+                            IsPrimary = true
+                            IsEnabled = true
+                        }
+                    ]
+                else
+                    // Fallback for other platforms
+                    [
+                        {
+                            Id = "PRIMARY"
+                            Name = "Primary Display"
+                            Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
+                            Position = { X = 0; Y = 0 }
+                            Orientation = Landscape
+                            IsPrimary = true
+                            IsEnabled = true
+                        }
+                    ]
             with
             | ex -> 
                 printfn $"Warning: Could not detect displays: {ex.Message}"
