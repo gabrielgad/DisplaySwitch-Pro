@@ -11,11 +11,13 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.0.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.0.0" />
     <PackageReference Include="Expecto" Version="10.2.1" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Components.fs" />
+    <Compile Include="WindowsDisplaySystem.fs" />
     <Compile Include="PlatformAdapter.fs" />
     <Compile Include="Systems.fs" />
     <Compile Include="Theme.fs" />

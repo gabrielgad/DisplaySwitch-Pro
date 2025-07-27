@@ -20,8 +20,15 @@ module DisplayCanvas =
         canvasGradient.GradientStops.Add(GradientStop(colors.CanvasBgDark, 1.0))
         
         canvas.Background <- canvasGradient :> IBrush
-        canvas.Width <- 800.0
-        canvas.Height <- 600.0
+        // Calculate canvas size based on display layout
+        let scale = 0.1
+        let maxX = displays |> List.map (fun d -> d.Position.X + d.Resolution.Width) |> List.max |> float
+        let maxY = displays |> List.map (fun d -> d.Position.Y + d.Resolution.Height) |> List.max |> float
+        let minX = displays |> List.map (fun d -> d.Position.X) |> List.min |> float
+        let minY = displays |> List.map (fun d -> d.Position.Y) |> List.min |> float
+        
+        canvas.Width <- Math.Max(800.0, (maxX - minX) * scale + 100.0)
+        canvas.Height <- Math.Max(600.0, (maxY - minY) * scale + 100.0)
         
         let intermediateGridSize = 20.0
         let snapProximityThreshold = 25.0
@@ -215,6 +222,19 @@ module DisplayCanvas =
                 onPositionChanged displayId (snappedX, snappedY)
             
             let visualDisplay = UIComponents.createVisualDisplay display (fun _ _ -> ())
+            
+            // Position display at its actual Windows coordinates (scaled for canvas)
+            let scale = 0.1
+            // Offset by minimum coordinates to handle negative positions
+            let offsetX = (float display.Position.X - minX) * scale + 50.0 // Add 50px padding
+            let offsetY = (float display.Position.Y - minY) * scale + 50.0 // Add 50px padding
+            
+            // Ensure the display is within canvas bounds
+            let canvasX = Math.Max(0.0, Math.Min(offsetX, canvas.Width - visualDisplay.Border.Width))
+            let canvasY = Math.Max(0.0, Math.Min(offsetY, canvas.Height - visualDisplay.Border.Height))
+            
+            Canvas.SetLeft(visualDisplay.Border, canvasX)
+            Canvas.SetTop(visualDisplay.Border, canvasY)
             
             let mutable isDragging = false
             let mutable dragStart = Point(0.0, 0.0)

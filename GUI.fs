@@ -4,6 +4,7 @@ open System
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
+open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
@@ -35,6 +36,9 @@ module GUI =
         let mutable currentWorld = world
         let displays = currentWorld.Components.ConnectedDisplays |> Map.values |> List.ofSeq
         let presets = PresetSystem.listPresets currentWorld
+        
+        // Shared dialog window for all displays
+        let mutable displaySettingsDialog: Window option = None
         
         printfn "DEBUG: Creating content with displays:"
         for display in displays do
@@ -203,12 +207,18 @@ module GUI =
         
         let infoPanel = StackPanel()
         infoPanel.Orientation <- Orientation.Vertical
-        infoPanel.Width <- 220.0
         infoPanel.Margin <- Thickness(15.0)
         infoPanel.Background <- SolidColorBrush(colors.Surface) :> IBrush
         
+        // Wrap infoPanel in ScrollViewer for resizable content
+        let infoScrollViewer = ScrollViewer()
+        infoScrollViewer.Content <- infoPanel
+        infoScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        infoScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        infoScrollViewer.Width <- 220.0
+        
         let infoPanelBorder = Border()
-        infoPanelBorder.Child <- infoPanel
+        infoPanelBorder.Child <- infoScrollViewer
         infoPanelBorder.CornerRadius <- CornerRadius(12.0)
         infoPanelBorder.Opacity <- 0.9
         infoPanelBorder.BorderThickness <- Thickness(1.0)
@@ -245,7 +255,58 @@ module GUI =
             printfn "Display %s %s - updated in data model" displayId (if isEnabled then "enabled" else "disabled")
             refreshMainWindowContent ()
         
-        let displayList = UIComponents.createDisplayListView displays onDisplayToggle
+        // Function to update dialog content for a specific display
+        let updateDialogForDisplay (dialog: Window) (display: DisplayInfo) =
+            printfn "DEBUG: Updating dialog content for display: %s" display.Name
+            dialog.Title <- sprintf "Display Settings - %s" display.Name
+            
+            // TODO: Update dialog content here when we implement the panels
+            // For now, we'll recreate the content
+            let colors = Theme.getCurrentColors()
+            
+            // Create modal handlers
+            let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
+                printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
+                // TODO: Implement actual mode switching in Phase 3
+            
+            let onCloseDialog () =
+                printfn "DEBUG: Dialog closed"
+                displaySettingsDialog <- None
+            
+            // Recreate dialog content for now (will optimize later)
+            let newDialog = UIComponents.createResolutionPickerDialog display onApplyMode onCloseDialog
+            dialog.Content <- newDialog.Content
+        
+        // Handler for opening display settings dialog
+        let rec onDisplaySettingsClick (display: DisplayInfo) =
+            printfn "DEBUG: Opening settings for display: %s" display.Name
+            
+            match displaySettingsDialog with
+            | Some existingDialog when not existingDialog.IsVisible ->
+                // Dialog exists but was closed, create new one
+                displaySettingsDialog <- None
+                onDisplaySettingsClick display
+            | Some existingDialog ->
+                // Dialog exists and is visible, update its content
+                updateDialogForDisplay existingDialog display
+                existingDialog.Activate() // Bring to front
+                printfn "DEBUG: Updated existing dialog"
+            | None ->
+                // No dialog exists, create new one
+                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
+                    printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
+                    // TODO: Implement actual mode switching in Phase 3
+                
+                let onCloseDialog () =
+                    printfn "DEBUG: Dialog closed"
+                    displaySettingsDialog <- None
+                
+                let dialogWindow = UIComponents.createResolutionPickerDialog display onApplyMode onCloseDialog
+                displaySettingsDialog <- Some dialogWindow
+                dialogWindow.Show()
+                printfn "DEBUG: Created new dialog window"
+        
+        let displayList = UIComponents.createDisplayListView displays onDisplayToggle onDisplaySettingsClick
         infoPanel.Children.Add(displayList)
         
         DockPanel.SetDock(infoPanelBorder, Dock.Left)

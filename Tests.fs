@@ -19,6 +19,7 @@ module TestData =
         Orientation = Landscape
         IsPrimary = true
         IsEnabled = true
+        Capabilities = None
     }
 
     let dualDisplayHorizontal = [
@@ -31,6 +32,7 @@ module TestData =
             Orientation = Landscape
             IsPrimary = false
             IsEnabled = true
+            Capabilities = None
         }
     ]
 
@@ -44,6 +46,7 @@ module TestData =
             Orientation = Portrait
             IsPrimary = false
             IsEnabled = true
+            Capabilities = None
         }
         {
             Id = "MOCK_DISABLED"
@@ -53,6 +56,7 @@ module TestData =
             Orientation = Landscape
             IsPrimary = false
             IsEnabled = false
+            Capabilities = None
         }
     ]
 
@@ -190,6 +194,7 @@ let coreAlgorithmTests =
                 Orientation = Landscape
                 IsPrimary = true
                 IsEnabled = true
+                Capabilities = None
             }
             let display2 = {
                 Id = "TEST2"
@@ -199,6 +204,7 @@ let coreAlgorithmTests =
                 Orientation = Landscape
                 IsPrimary = false
                 IsEnabled = true
+                Capabilities = None
             }
             
             let calculateDisplayEdges displays =
@@ -407,7 +413,8 @@ let uiComponentTests = testList "UI Components Tests" [
         let mutable toggleCallCount = 0
         let onDisplayToggle _ _ = toggleCallCount <- toggleCallCount + 1
         
-        let listView = UIComponents.createDisplayListView displays onDisplayToggle
+        let onSettingsClick display = () // Dummy handler for tests
+        let listView = UIComponents.createDisplayListView displays onDisplayToggle onSettingsClick
         
         Expect.equal listView.Children.Count 2 "Should create 2 display cards for dual display setup"
         
@@ -473,6 +480,38 @@ let displayCanvasTests = testList "Display Canvas Tests" [
             printfn ""
         
         Expect.isGreaterThan displays.Length 0 "Should detect at least one display"
+        
+    testCase "Display mode enumeration test" <| fun _ ->
+        printfn "\n=== DISPLAY MODE ENUMERATION TEST ==="
+        let adapter = PlatformAdapter.create()
+        let displays = adapter.GetConnectedDisplays()
+        
+        Expect.isGreaterThan displays.Length 0 "Should detect at least one display for mode testing"
+        
+        // Test mode enumeration for first active display
+        let activeDisplay = displays |> List.find (fun d -> d.IsEnabled)
+        printfn "Testing mode enumeration for: %s (%s)" activeDisplay.Name activeDisplay.Id
+        
+        // Test the getAllDisplayModes function directly
+        let availableModes = WindowsDisplaySystem.getAllDisplayModes activeDisplay.Id
+        
+        printfn "Found %d available modes" availableModes.Length
+        Expect.isGreaterThan availableModes.Length 0 "Should find at least one display mode"
+        
+        // Verify current mode is in the available modes list
+        let currentMode = activeDisplay.Resolution
+        let currentModeExists = availableModes |> List.exists (fun mode ->
+            mode.Width = currentMode.Width && 
+            mode.Height = currentMode.Height && 
+            mode.RefreshRate = currentMode.RefreshRate)
+        
+        Expect.isTrue currentModeExists "Current display mode should be in available modes list"
+        
+        // Basic validation of modes
+        for mode in availableModes do
+            Expect.isGreaterThan mode.Width 0 "Mode width should be positive"
+            Expect.isGreaterThan mode.Height 0 "Mode height should be positive"
+            Expect.isGreaterThan mode.RefreshRate 0 "Mode refresh rate should be positive"
 ]
 
 // Test runner - call this function to run tests programmatically

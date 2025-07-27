@@ -164,13 +164,17 @@ module UIComponents =
             EnableCheckBox = null
         }
     
-    let createDisplayListView (displays: DisplayInfo list) (onDisplayToggle: DisplayId -> bool -> unit) =
+    let createDisplayListView (displays: DisplayInfo list) (onDisplayToggle: DisplayId -> bool -> unit) (onSettingsClick: DisplayInfo -> unit) =
         let colors = Theme.getCurrentColors()
         let stackPanel = StackPanel()
         stackPanel.Orientation <- Orientation.Vertical
         stackPanel.Margin <- Thickness(15.0)
         
         for display in displays do
+            // Debug output
+            printfn "DEBUG: Creating card for display %s - Enabled: %b, Has Capabilities: %b" 
+                display.Name display.IsEnabled display.Capabilities.IsSome
+            
             // Extract display number from device ID
             let displayNumber = 
                 let deviceName = display.Id.Replace(@"\\.\DISPLAY", "")
@@ -194,72 +198,106 @@ module UIComponents =
             displayCard.BorderThickness <- Thickness(1.0)
             displayCard.CornerRadius <- CornerRadius(6.0)
             displayCard.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
-            displayCard.Padding <- Thickness(12.0, 12.0, 12.0, 12.0)
-            displayCard.MinHeight <- 80.0
+            displayCard.Padding <- Thickness(12.0)
+            displayCard.MinHeight <- 120.0
             displayCard.Cursor <- new Cursor(StandardCursorType.Hand)
             
-            let cardContent = Grid()
-            cardContent.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
-            cardContent.ColumnDefinitions.Add(ColumnDefinition())
-            cardContent.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
+            // Use vertical StackPanel for: number (top) -> text content (middle) -> buttons (bottom)
+            let cardContent = StackPanel()
+            cardContent.Orientation <- Orientation.Vertical
+            cardContent.Spacing <- 8.0
             
-            // Display number badge
+            // Top: Display number badge (centered)
             let numberBadge = Border()
             numberBadge.Background <- SolidColorBrush(colors.Primary) :> IBrush
-            numberBadge.CornerRadius <- CornerRadius(12.0)
-            numberBadge.Width <- 24.0
-            numberBadge.Height <- 24.0
-            numberBadge.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
-            Grid.SetColumn(numberBadge, 0)
+            numberBadge.CornerRadius <- CornerRadius(15.0)
+            numberBadge.Width <- 30.0
+            numberBadge.Height <- 30.0
+            numberBadge.HorizontalAlignment <- HorizontalAlignment.Center
             
             let numberText = TextBlock()
             numberText.Text <- displayNumber
             numberText.HorizontalAlignment <- HorizontalAlignment.Center
             numberText.VerticalAlignment <- VerticalAlignment.Center
             numberText.FontWeight <- FontWeight.Bold
-            numberText.FontSize <- 12.0
+            numberText.FontSize <- 14.0
             numberText.Foreground <- Brushes.White
             numberBadge.Child <- numberText
+            cardContent.Children.Add(numberBadge)
             
-            let displayContent = StackPanel()
-            displayContent.Orientation <- Orientation.Vertical
-            Grid.SetColumn(displayContent, 1)
+            // Middle: Display information text (centered)
+            let displayInfo = StackPanel()
+            displayInfo.Orientation <- Orientation.Vertical
+            displayInfo.HorizontalAlignment <- HorizontalAlignment.Center
+            displayInfo.Spacing <- 2.0
             
             let nameText = TextBlock()
-            nameText.Text <- sprintf "%s %s" displayNumber monitorName
+            nameText.Text <- monitorName
             nameText.FontWeight <- FontWeight.SemiBold
             nameText.FontSize <- 13.0
             nameText.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-            nameText.Margin <- Thickness(0.0, 0.0, 0.0, 4.0)
+            nameText.TextAlignment <- TextAlignment.Center
             nameText.TextWrapping <- TextWrapping.Wrap
-            nameText.MaxWidth <- 200.0
-            displayContent.Children.Add(nameText)
+            nameText.MaxWidth <- 180.0
+            displayInfo.Children.Add(nameText)
             
             let resolutionText = TextBlock()
             resolutionText.Text <- sprintf "%dx%d @ %dHz" display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate
             resolutionText.FontSize <- 11.0
             resolutionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
-            resolutionText.Margin <- Thickness(0.0, 0.0, 0.0, 2.0)
+            resolutionText.TextAlignment <- TextAlignment.Center
             resolutionText.TextWrapping <- TextWrapping.Wrap
-            displayContent.Children.Add(resolutionText)
+            displayInfo.Children.Add(resolutionText)
             
             let statusText = TextBlock()
             statusText.Text <- sprintf "%s • %s" (if display.IsPrimary then "Primary" else "Secondary") (if display.IsEnabled then "Active" else "Inactive")
             statusText.FontSize <- 10.0
             statusText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
-            statusText.Margin <- Thickness(0.0, 0.0, 0.0, 2.0)
+            statusText.TextAlignment <- TextAlignment.Center
             statusText.TextWrapping <- TextWrapping.Wrap
-            displayContent.Children.Add(statusText)
+            displayInfo.Children.Add(statusText)
             
             let positionText = TextBlock()
             positionText.Text <- sprintf "Position: (%d, %d)" display.Position.X display.Position.Y
             positionText.FontSize <- 9.0
             positionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
+            positionText.TextAlignment <- TextAlignment.Center
             positionText.TextWrapping <- TextWrapping.Wrap
-            displayContent.Children.Add(positionText)
+            displayInfo.Children.Add(positionText)
             
-            cardContent.Children.Add(numberBadge)
-            cardContent.Children.Add(displayContent)
+            cardContent.Children.Add(displayInfo)
+            
+            // Bottom: Button panel for toggle and settings (centered horizontally)
+            let buttonPanel = StackPanel()
+            buttonPanel.Orientation <- Orientation.Horizontal
+            buttonPanel.HorizontalAlignment <- HorizontalAlignment.Center
+            buttonPanel.Spacing <- 8.0
+            
+            // Settings gear button (only for enabled displays with capabilities)
+            if display.IsEnabled && display.Capabilities.IsSome then
+                let settingsButton = Button()
+                settingsButton.Content <- "⚙️" // Use full emoji
+                settingsButton.Width <- 32.0  // Slightly wider for emoji
+                settingsButton.Height <- 30.0
+                settingsButton.FontSize <- 14.0  // Smaller font size
+                settingsButton.CornerRadius <- CornerRadius(15.0)
+                settingsButton.Background <- SolidColorBrush(colors.Surface) :> IBrush
+                settingsButton.Foreground <- SolidColorBrush(colors.Text) :> IBrush
+                settingsButton.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+                settingsButton.BorderThickness <- Thickness(1.0)
+                settingsButton.Cursor <- new Cursor(StandardCursorType.Hand)
+                settingsButton.HorizontalContentAlignment <- HorizontalAlignment.Center
+                settingsButton.VerticalContentAlignment <- VerticalAlignment.Center
+                settingsButton.Padding <- Thickness(0.0)
+                ToolTip.SetTip(settingsButton, "Display Settings")
+                
+                // Call the settings callback
+                settingsButton.Click.Add(fun _ ->
+                    printfn "DEBUG: Opening settings for display: %s" display.Name
+                    onSettingsClick display
+                )
+                
+                buttonPanel.Children.Add(settingsButton)
             
             let toggleButton = Button()
             toggleButton.Content <- if display.IsEnabled then "✓" else "✗"
@@ -274,17 +312,162 @@ module UIComponents =
                     SolidColorBrush(Color.FromRgb(239uy, 68uy, 68uy)) :> IBrush
             toggleButton.Foreground <- Brushes.White
             toggleButton.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
-            Grid.SetColumn(toggleButton, 2)
             
             toggleButton.Click.Add(fun _ ->
                 onDisplayToggle display.Id (not display.IsEnabled)
             )
             
-            cardContent.Children.Add(toggleButton)
+            buttonPanel.Children.Add(toggleButton)
+            cardContent.Children.Add(buttonPanel)
             displayCard.Child <- cardContent
             stackPanel.Children.Add(displayCard)
         
         stackPanel
+
+    // Resolution picker dialog window for selecting display modes
+    let createResolutionPickerDialog (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
+        let colors = Theme.getCurrentColors()
+        
+        // Create dialog window
+        let dialogWindow = Window()
+        dialogWindow.Title <- sprintf "Display Settings - %s" display.Name
+        dialogWindow.Width <- 700.0
+        dialogWindow.Height <- 550.0
+        dialogWindow.MinWidth <- 600.0
+        dialogWindow.MinHeight <- 400.0
+        dialogWindow.CanResize <- true
+        dialogWindow.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+        dialogWindow.Background <- SolidColorBrush(colors.Background)
+        
+        // Set icon (if available)
+        try
+            dialogWindow.Icon <- WindowIcon("icon.ico")
+        with
+        | _ -> () // Ignore if icon file not found
+        
+        // Modal content
+        let contentGrid = Grid()
+        contentGrid.Margin <- Thickness(20.0)
+        contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Header
+        contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Current mode info
+        contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Star)) // Resolution panels
+        contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Buttons
+        
+        // Header with title (no close button for modeless dialog)
+        let headerPanel = StackPanel()
+        headerPanel.Orientation <- Orientation.Vertical
+        Grid.SetRow(headerPanel, 0)
+        
+        let titleText = TextBlock()
+        titleText.Text <- sprintf "🖥️ %s Settings" display.Name
+        titleText.FontSize <- 18.0
+        titleText.FontWeight <- FontWeight.Bold
+        titleText.Foreground <- SolidColorBrush(colors.Text)
+        titleText.HorizontalAlignment <- HorizontalAlignment.Center
+        titleText.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
+        headerPanel.Children.Add(titleText)
+        
+        contentGrid.Children.Add(headerPanel)
+        
+        // Current mode display
+        let currentModePanel = Border()
+        currentModePanel.Background <- SolidColorBrush(colors.Surface)
+        currentModePanel.CornerRadius <- CornerRadius(6.0)
+        currentModePanel.Padding <- Thickness(10.0)
+        currentModePanel.Margin <- Thickness(0.0, 10.0, 0.0, 10.0)
+        Grid.SetRow(currentModePanel, 1)
+        
+        let currentModeText = TextBlock()
+        match display.Capabilities with
+        | Some caps ->
+            currentModeText.Text <- sprintf "Current: %dx%d @ %dHz" 
+                caps.CurrentMode.Width 
+                caps.CurrentMode.Height 
+                caps.CurrentMode.RefreshRate
+        | None ->
+            currentModeText.Text <- sprintf "Current: %dx%d @ %dHz" 
+                display.Resolution.Width 
+                display.Resolution.Height 
+                display.Resolution.RefreshRate
+        currentModeText.FontSize <- 14.0
+        currentModeText.Foreground <- SolidColorBrush(colors.Text)
+        currentModeText.HorizontalAlignment <- HorizontalAlignment.Center
+        currentModePanel.Child <- currentModeText
+        
+        contentGrid.Children.Add(currentModePanel)
+        
+        // Scrollable content area for resolution panels
+        let contentScrollViewer = ScrollViewer()
+        contentScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        contentScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        Grid.SetRow(contentScrollViewer, 2)
+        
+        // Placeholder for resolution/refresh rate panels (Phase 2.3)
+        let panelsPlaceholder = TextBlock()
+        panelsPlaceholder.Text <- "Resolution and refresh rate selection panels will go here"
+        panelsPlaceholder.Foreground <- SolidColorBrush(colors.TextSecondary)
+        panelsPlaceholder.HorizontalAlignment <- HorizontalAlignment.Center
+        panelsPlaceholder.VerticalAlignment <- VerticalAlignment.Center
+        panelsPlaceholder.Margin <- Thickness(20.0)
+        
+        contentScrollViewer.Content <- panelsPlaceholder
+        contentGrid.Children.Add(contentScrollViewer)
+        
+        // Bottom buttons
+        let buttonPanel = StackPanel()
+        buttonPanel.Orientation <- Orientation.Horizontal
+        buttonPanel.HorizontalAlignment <- HorizontalAlignment.Right
+        buttonPanel.Margin <- Thickness(0.0, 10.0, 0.0, 0.0)
+        Grid.SetRow(buttonPanel, 3)
+        
+        let cancelButton = Button()
+        cancelButton.Content <- "Cancel"
+        cancelButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
+        cancelButton.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
+        cancelButton.Background <- SolidColorBrush(colors.Surface)
+        cancelButton.Foreground <- SolidColorBrush(colors.Text)
+        cancelButton.BorderBrush <- SolidColorBrush(colors.Border)
+        cancelButton.BorderThickness <- Thickness(1.0)
+        cancelButton.CornerRadius <- CornerRadius(6.0)
+        cancelButton.Cursor <- new Cursor(StandardCursorType.Hand)
+        cancelButton.Click.Add(fun _ -> 
+            dialogWindow.Close()
+            onClose())
+        buttonPanel.Children.Add(cancelButton)
+        
+        let testButton = Button()
+        testButton.Content <- "Test 15s"
+        testButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
+        testButton.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
+        testButton.Background <- SolidColorBrush(colors.Secondary)
+        testButton.Foreground <- Brushes.White
+        testButton.BorderThickness <- Thickness(0.0)
+        testButton.CornerRadius <- CornerRadius(6.0)
+        testButton.Cursor <- new Cursor(StandardCursorType.Hand)
+        testButton.IsEnabled <- false // Will enable when selection is made
+        buttonPanel.Children.Add(testButton)
+        
+        let applyButton = Button()
+        applyButton.Content <- "Apply"
+        applyButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
+        applyButton.Background <- SolidColorBrush(colors.Primary)
+        applyButton.Foreground <- Brushes.White
+        applyButton.BorderThickness <- Thickness(0.0)
+        applyButton.CornerRadius <- CornerRadius(6.0)
+        applyButton.Cursor <- new Cursor(StandardCursorType.Hand)
+        applyButton.IsEnabled <- false // Will enable when selection is made
+        buttonPanel.Children.Add(applyButton)
+        
+        contentGrid.Children.Add(buttonPanel)
+        
+        // Set window content
+        dialogWindow.Content <- contentGrid
+        
+        // Handle window closing
+        dialogWindow.Closing.Add(fun _ -> onClose())
+        
+        // Return the dialog window
+        dialogWindow
 
     let createPresetPanel (presets: string list) (onPresetClick: string -> unit) (onPresetDelete: string -> unit) =
         let colors = Theme.getCurrentColors()

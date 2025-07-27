@@ -19,6 +19,30 @@ type Resolution = {
     RefreshRate: int
 }
 
+/// Individual display mode (resolution + refresh rate combination)
+type DisplayMode = {
+    /// Width in pixels
+    Width: int
+    /// Height in pixels
+    Height: int
+    /// Refresh rate in Hz
+    RefreshRate: int
+    /// Color depth in bits per pixel (typically 32)
+    BitsPerPixel: int
+}
+
+/// Complete capabilities and available modes for a display
+type DisplayCapabilities = {
+    /// Display identifier
+    DisplayId: DisplayId
+    /// Currently active display mode
+    CurrentMode: DisplayMode
+    /// All supported display modes
+    AvailableModes: DisplayMode list
+    /// Grouped resolutions map: (width,height) -> list of refresh rates
+    GroupedResolutions: Map<(int * int), int list>
+}
+
 /// Screen position in virtual desktop coordinate space
 type Position = {
     /// X coordinate (can be negative for displays left of primary)
@@ -50,6 +74,8 @@ type DisplayInfo = {
     IsPrimary: bool
     /// Whether this display is currently enabled/active
     IsEnabled: bool
+    /// Display capabilities including all available modes (optional for backward compatibility)
+    Capabilities: DisplayCapabilities option
 }
 
 /// Named collection of display configurations for preset management

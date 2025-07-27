@@ -198,6 +198,7 @@ module WindowsDisplaySystem =
                     Width = int devMode.dmPelsWidth
                     Height = int devMode.dmPelsHeight
                     RefreshRate = int devMode.dmDisplayFrequency
+                    BitsPerPixel = int devMode.dmBitsPerPel
                 }
             else
                 printfn "Failed to get display settings for %s" deviceName
@@ -206,6 +207,60 @@ module WindowsDisplaySystem =
         | ex ->
             printfn "Error getting display settings for %s: %s" deviceName ex.Message
             None
+
+    // Helper to create grouped resolutions from mode list
+    let private createGroupedResolutions (modes: DisplayMode list) =
+        modes
+        |> List.groupBy (fun m -> (m.Width, m.Height))
+        |> List.map (fun ((w, h), modelist) -> 
+            ((w, h), modelist |> List.map (fun m -> m.RefreshRate) |> List.distinct |> List.sort))
+        |> Map.ofList
+
+    // Get all supported display modes for a display device
+    let internal getAllDisplayModes (deviceName: string) =
+        try
+            let mutable modes = []
+            let mutable modeIndex = 0
+            let mutable continueEnum = true
+            
+            printfn "Enumerating all display modes for %s..." deviceName
+            
+            while continueEnum do
+                let mutable devMode = DEVMODE()
+                devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                
+                let result = EnumDisplaySettings(deviceName, modeIndex, &devMode)
+                if result then
+                    let mode = {
+                        Width = int devMode.dmPelsWidth
+                        Height = int devMode.dmPelsHeight
+                        RefreshRate = int devMode.dmDisplayFrequency
+                        BitsPerPixel = int devMode.dmBitsPerPel
+                    }
+                    
+                    // Only add valid modes (basic validation)
+                    if mode.Width > 0 && mode.Height > 0 && mode.RefreshRate > 0 then
+                        modes <- mode :: modes
+                        
+                    modeIndex <- modeIndex + 1
+                else
+                    continueEnum <- false
+            
+            let uniqueModes = modes |> List.rev |> List.distinct
+            printfn "Found %d unique display modes for %s" uniqueModes.Length deviceName
+            
+            // Log first few modes for verification
+            uniqueModes 
+            |> List.take (min 5 uniqueModes.Length)
+            |> List.iter (fun mode -> 
+                printfn "  Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate)
+            
+            uniqueModes
+            
+        with
+        | ex ->
+            printfn "Error enumerating display modes for %s: %s" deviceName ex.Message
+            []
 
     // Get monitor info for active displays
     let private getActiveMonitorInfo() =
@@ -256,10 +311,27 @@ module WindowsDisplaySystem =
                 match actualSettings with
                 | Some settings -> 
                     printfn "Display %s: %dx%d @ %dHz" device.DeviceName settings.Width settings.Height settings.RefreshRate
-                    settings
+                    { Width = settings.Width; Height = settings.Height; RefreshRate = settings.RefreshRate }
                 | None -> 
                     printfn "Using fallback resolution for %s: %dx%d @ 60Hz" device.DeviceName width height
                     { Width = width; Height = height; RefreshRate = 60 }
+            
+            // Get all available display modes for active displays
+            let availableModes = getAllDisplayModes device.DeviceName
+            let capabilities = 
+                if availableModes.Length > 0 then
+                    let currentMode = 
+                        match actualSettings with
+                        | Some settings -> settings
+                        | None -> { Width = width; Height = height; RefreshRate = 60; BitsPerPixel = 32 }
+                    
+                    Some {
+                        DisplayId = device.DeviceName
+                        CurrentMode = currentMode
+                        AvailableModes = availableModes
+                        GroupedResolutions = createGroupedResolutions availableModes
+                    }
+                else None
             
             {
                 Id = device.DeviceName
@@ -269,6 +341,7 @@ module WindowsDisplaySystem =
                 Orientation = orientation
                 IsPrimary = isPrimary
                 IsEnabled = true // Active displays are enabled
+                Capabilities = capabilities
             }
         | None ->
             // Inactive display - position away from active displays to avoid overlap
@@ -281,6 +354,7 @@ module WindowsDisplaySystem =
                 Orientation = Landscape
                 IsPrimary = isPrimary
                 IsEnabled = false // Inactive displays are disabled
+                Capabilities = None // No capabilities for inactive displays (can be populated later if needed)
             }
     
     // Main function to get all connected displays (following ECS pattern)
