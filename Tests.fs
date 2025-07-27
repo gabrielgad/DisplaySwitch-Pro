@@ -16,6 +16,7 @@ module TestData =
         Name = "Primary Test Display"
         Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
         Position = { X = 0; Y = 0 }
+        Orientation = Landscape
         IsPrimary = true
         IsEnabled = true
     }
@@ -27,6 +28,7 @@ module TestData =
             Name = "Secondary Test Display"
             Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
             Position = { X = 1920; Y = 0 }
+            Orientation = Landscape
             IsPrimary = false
             IsEnabled = true
         }
@@ -39,6 +41,7 @@ module TestData =
             Name = "Vertical Display"
             Resolution = { Width = 1080; Height = 1920; RefreshRate = 60 }
             Position = { X = 3840; Y = -420 }
+            Orientation = Portrait
             IsPrimary = false
             IsEnabled = true
         }
@@ -47,6 +50,7 @@ module TestData =
             Name = "Disabled Display"
             Resolution = { Width = 1600; Height = 900; RefreshRate = 60 }
             Position = { X = 1920; Y = 1080 }
+            Orientation = Landscape
             IsPrimary = false
             IsEnabled = false
         }
@@ -175,6 +179,7 @@ let coreAlgorithmTests =
                 Name = "Test Display 1"
                 Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
                 Position = { X = 0; Y = 0 }
+                Orientation = Landscape
                 IsPrimary = true
                 IsEnabled = true
             }
@@ -183,6 +188,7 @@ let coreAlgorithmTests =
                 Name = "Test Display 2"
                 Resolution = { Width = 2560; Height = 1440; RefreshRate = 60 }
                 Position = { X = 1920; Y = -180 }
+                Orientation = Landscape
                 IsPrimary = false
                 IsEnabled = true
             }

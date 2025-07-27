@@ -941,9 +941,9 @@ module GUI =
         canvasGradient.Radius <- 1.2
         
         if currentTheme = Light then
-            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 250uy, 252uy, 255uy), 0.0))
-            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(180uy, 241uy, 245uy, 249uy), 0.6))
-            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 226uy, 232uy, 240uy), 1.0))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 200uy, 200uy, 200uy), 0.0))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(180uy, 190uy, 190uy, 190uy), 0.6))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 180uy, 180uy, 180uy), 1.0))
         else
             canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 30uy, 38uy, 52uy), 0.0))
             canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(180uy, 24uy, 32uy, 47uy), 0.6))

@@ -22,6 +22,7 @@ type CrossPlatformAdapter() =
                         Name = "Primary Monitor" 
                         Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
                         Position = { X = 0; Y = 0 }
+                        Orientation = Landscape
                         IsPrimary = true
                         IsEnabled = true
                     }
@@ -30,6 +31,7 @@ type CrossPlatformAdapter() =
                         Name = "Secondary Monitor"
                         Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
                         Position = { X = 1920; Y = 0 }
+                        Orientation = Landscape
                         IsPrimary = false
                         IsEnabled = true
                     }
@@ -38,6 +40,7 @@ type CrossPlatformAdapter() =
                         Name = "Vertical Monitor"
                         Resolution = { Width = 1080; Height = 1920; RefreshRate = 60 }
                         Position = { X = 3500; Y = 0 }  // Start on grid (350px GUI = 3500 display)
+                        Orientation = Portrait
                         IsPrimary = false
                         IsEnabled = true  // Enable for testing
                     }

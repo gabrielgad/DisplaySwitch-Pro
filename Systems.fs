@@ -21,12 +21,24 @@ module World =
             match event with
             | DisplayDetected display ->
                 Components.addDisplay display updatedComponents
+            | DisplayDisconnected displayId ->
+                // Remove display from connected displays
+                { updatedComponents with 
+                    ConnectedDisplays = Map.remove displayId updatedComponents.ConnectedDisplays }
             | DisplayConfigurationChanged config ->
                 Components.setCurrentConfiguration config updatedComponents
+            | DisplayConfigurationFailed (error, _) ->
+                // Log error but don't change state
+                printfn "Display configuration failed: %s" error
+                updatedComponents
             | PresetSaved (name, config) ->
                 Components.savePreset name config updatedComponents
             | PresetLoaded (name, config) ->
                 Components.setCurrentConfiguration config updatedComponents
+            | PresetLoadFailed (name, error) ->
+                // Log error but don't change state
+                printfn "Preset load failed for '%s': %s" name error
+                updatedComponents
         
         { world with 
             Components = finalComponents
