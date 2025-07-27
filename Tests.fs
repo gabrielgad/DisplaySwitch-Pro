@@ -320,6 +320,127 @@ let coreAlgorithmTests =
             Expect.equal bottomAlignedY -84.0 "Bottom alignment calculation (before bounds confinement)"
     ]
 
+[<Tests>]
+let themeTests = testList "Theme Module Tests" [
+    testCase "Light theme colors are correctly defined" <| fun _ ->
+        let lightColors = Theme.getThemeColors Theme.Light
+        
+        Expect.equal lightColors.Background (Avalonia.Media.Color.FromRgb(248uy, 250uy, 252uy)) "Light theme background should match"
+        Expect.equal lightColors.Surface (Avalonia.Media.Color.FromRgb(255uy, 255uy, 255uy)) "Light theme surface should be white"
+        Expect.equal lightColors.Primary (Avalonia.Media.Color.FromRgb(100uy, 149uy, 237uy)) "Light theme primary should be cornflower blue"
+        Expect.equal lightColors.Text (Avalonia.Media.Color.FromRgb(31uy, 41uy, 55uy)) "Light theme text should be dark"
+        
+    testCase "Dark theme colors are correctly defined" <| fun _ ->
+        let darkColors = Theme.getThemeColors Theme.Dark
+        
+        Expect.equal darkColors.Background (Avalonia.Media.Color.FromRgb(17uy, 24uy, 39uy)) "Dark theme background should be dark blue"
+        Expect.equal darkColors.Surface (Avalonia.Media.Color.FromRgb(31uy, 41uy, 55uy)) "Dark theme surface should be dark blue-gray"
+        Expect.equal darkColors.Primary (Avalonia.Media.Color.FromRgb(96uy, 165uy, 250uy)) "Dark theme primary should be light blue"
+        Expect.equal darkColors.Text (Avalonia.Media.Color.FromRgb(243uy, 244uy, 246uy)) "Dark theme text should be light"
+        
+    testCase "Theme toggle works correctly" <| fun _ ->
+        Theme.setTheme Theme.Light
+        Expect.equal Theme.currentTheme Theme.Light "Should start with light theme"
+        
+        let newTheme = Theme.toggleTheme()
+        Expect.equal newTheme Theme.Dark "Should toggle to dark theme"
+        Expect.equal Theme.currentTheme Theme.Dark "Current theme should be updated to dark"
+        
+        let backToLight = Theme.toggleTheme()
+        Expect.equal backToLight Theme.Light "Should toggle back to light theme"
+        Expect.equal Theme.currentTheme Theme.Light "Current theme should be back to light"
+        
+    testCase "getCurrentColors returns current theme colors" <| fun _ ->
+        Theme.setTheme Theme.Light
+        let lightColors = Theme.getCurrentColors()
+        let expectedLightColors = Theme.getThemeColors Theme.Light
+        Expect.equal lightColors.Background expectedLightColors.Background "getCurrentColors should return light theme colors"
+        
+        Theme.setTheme Theme.Dark
+        let darkColors = Theme.getCurrentColors()
+        let expectedDarkColors = Theme.getThemeColors Theme.Dark
+        Expect.equal darkColors.Background expectedDarkColors.Background "getCurrentColors should return dark theme colors"
+        
+    testCase "setTheme updates current theme" <| fun _ ->
+        Theme.setTheme Theme.Dark
+        Expect.equal Theme.currentTheme Theme.Dark "setTheme should update current theme to dark"
+        
+        Theme.setTheme Theme.Light
+        Expect.equal Theme.currentTheme Theme.Light "setTheme should update current theme to light"
+]
+
+[<Tests>]
+let uiComponentTests = testList "UI Components Tests" [
+    testCase "Visual display creation with correct properties" <| fun _ ->
+        let display = TestData.singleDisplay
+        let mutable positionChangedCalled = false
+        let onPositionChanged _ _ = positionChangedCalled <- true
+        
+        let visualDisplay = UIComponents.createVisualDisplay display onPositionChanged
+        
+        Expect.equal visualDisplay.Display.Id display.Id "Visual display should preserve display ID"
+        Expect.equal visualDisplay.Display.Name display.Name "Visual display should preserve display name"
+        Expect.isNotNull visualDisplay.Rectangle "Rectangle should be created"
+        Expect.isNotNull visualDisplay.Border "Border should be created"
+        Expect.isNotNull visualDisplay.Label "Label should be created"
+        
+    testCase "Display list view creates correct number of items" <| fun _ ->
+        let displays = TestData.dualDisplayHorizontal
+        let mutable toggleCallCount = 0
+        let onDisplayToggle _ _ = toggleCallCount <- toggleCallCount + 1
+        
+        let listView = UIComponents.createDisplayListView displays onDisplayToggle
+        
+        Expect.equal listView.Children.Count 2 "Should create 2 display cards for dual display setup"
+        
+    testCase "Preset panel handles empty preset list" <| fun _ ->
+        let emptyPresets = []
+        let mutable presetClickCalled = false
+        let mutable deleteClickCalled = false
+        let onPresetClick _ = presetClickCalled <- true
+        let onPresetDelete _ = deleteClickCalled <- true
+        
+        let presetPanel = UIComponents.createPresetPanel emptyPresets onPresetClick onPresetDelete
+        
+        Expect.isNotNull presetPanel "Preset panel should be created even with empty list"
+        Expect.equal presetPanel.Children.Count 4 "Should have title, save button, header, and scroll viewer"
+        
+    testCase "Preset panel handles non-empty preset list" <| fun _ ->
+        let presets = ["Layout1"; "Layout2"; "Layout3"]
+        let mutable presetClickCalled = false
+        let mutable deleteClickCalled = false
+        let onPresetClick _ = presetClickCalled <- true
+        let onPresetDelete _ = deleteClickCalled <- true
+        
+        let presetPanel = UIComponents.createPresetPanel presets onPresetClick onPresetDelete
+        
+        Expect.isNotNull presetPanel "Preset panel should be created with preset list"
+        Expect.equal presetPanel.Children.Count 4 "Should have title, save button, header, and scroll viewer"
+]
+
+[<Tests>]
+let displayCanvasTests = testList "Display Canvas Tests" [
+    testCase "Canvas creation succeeds with valid displays" <| fun _ ->
+        let displays = TestData.dualDisplayHorizontal
+        let mutable changeCallCount = 0
+        let onDisplayChanged _ _ = changeCallCount <- changeCallCount + 1
+        
+        let canvas = DisplayCanvas.createDisplayCanvas displays onDisplayChanged
+        
+        Expect.isNotNull canvas "Display canvas should be created successfully"
+        Expect.equal changeCallCount 0 "No display changes should occur during canvas creation"
+        
+    testCase "Canvas handles empty display list" <| fun _ ->
+        let emptyDisplays = []
+        let mutable changeCallCount = 0
+        let onDisplayChanged _ _ = changeCallCount <- changeCallCount + 1
+        
+        let canvas = DisplayCanvas.createDisplayCanvas emptyDisplays onDisplayChanged
+        
+        Expect.isNotNull canvas "Display canvas should handle empty display list"
+        Expect.equal changeCallCount 0 "No display changes should occur with empty list"
+]
+
 // Test runner - call this function to run tests programmatically
 let runTests () =
     runTestsInAssemblyWithCLIArgs [] [||]

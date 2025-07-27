@@ -18,6 +18,9 @@
     <Compile Include="Components.fs" />
     <Compile Include="PlatformAdapter.fs" />
     <Compile Include="Systems.fs" />
+    <Compile Include="Theme.fs" />
+    <Compile Include="UIComponents.fs" />
+    <Compile Include="DisplayCanvas.fs" />
     <Compile Include="GUI.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="Program.fs" />
