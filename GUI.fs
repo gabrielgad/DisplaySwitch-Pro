@@ -807,8 +807,34 @@ module GUI =
         
         let mainPanel = DockPanel()
         mainPanel.LastChildFill <- true
-        mainPanel.Background <- SolidColorBrush(colors.Background) :> IBrush
-        mainPanel.Margin <- Thickness(5.0)
+        mainPanel.Margin <- Thickness(10.0)
+        
+        // Create modern acrylic background with transparency
+        let acrylicBorder = Border()
+        acrylicBorder.CornerRadius <- CornerRadius(12.0)
+        acrylicBorder.Opacity <- 0.95
+        
+        // Enhanced gradient background with multiple stops
+        let mainGradient = LinearGradientBrush()
+        mainGradient.StartPoint <- RelativePoint(0.0, 0.0, RelativeUnit.Relative)
+        mainGradient.EndPoint <- RelativePoint(1.0, 1.0, RelativeUnit.Relative)
+        
+        if currentTheme = Light then
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(240uy, 248uy, 250uy, 252uy), 0.0))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(230uy, 241uy, 245uy, 249uy), 0.3))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 236uy, 240uy, 244uy), 0.7))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(210uy, 229uy, 234uy, 240uy), 1.0))
+        else
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(240uy, 17uy, 24uy, 39uy), 0.0))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(230uy, 24uy, 32uy, 47uy), 0.3))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 31uy, 41uy, 55uy), 0.7))
+            mainGradient.GradientStops.Add(GradientStop(Color.FromArgb(210uy, 15uy, 20uy, 35uy), 1.0))
+        
+        acrylicBorder.Background <- mainGradient :> IBrush
+        acrylicBorder.BorderBrush <- SolidColorBrush(Color.FromArgb(100uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
+        acrylicBorder.BorderThickness <- Thickness(1.0)
+        
+        acrylicBorder.Child <- mainPanel
         
         // Left side - display info panel
         let infoPanel = StackPanel()
@@ -819,10 +845,24 @@ module GUI =
         
         let infoPanelBorder = Border()
         infoPanelBorder.Child <- infoPanel
-        infoPanelBorder.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        infoPanelBorder.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        infoPanelBorder.CornerRadius <- CornerRadius(12.0)
+        infoPanelBorder.Opacity <- 0.9
         infoPanelBorder.BorderThickness <- Thickness(1.0)
-        infoPanelBorder.CornerRadius <- CornerRadius(8.0)
+        
+        // Enhanced glass effect for panels
+        let infoPanelGradient = LinearGradientBrush()
+        infoPanelGradient.StartPoint <- RelativePoint(0.0, 0.0, RelativeUnit.Relative)
+        infoPanelGradient.EndPoint <- RelativePoint(0.0, 1.0, RelativeUnit.Relative)
+        
+        if currentTheme = Light then
+            infoPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 255uy, 255uy, 255uy), 0.0))
+            infoPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 248uy, 250uy, 252uy), 1.0))
+        else
+            infoPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 45uy, 55uy, 70uy), 0.0))
+            infoPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 31uy, 41uy, 55uy), 1.0))
+        
+        infoPanelBorder.Background <- infoPanelGradient :> IBrush
+        infoPanelBorder.BorderBrush <- SolidColorBrush(Color.FromArgb(120uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
         
         let infoTitle = TextBlock()
         infoTitle.Text <- "📺 Display Information"
@@ -868,19 +908,49 @@ module GUI =
         presetPanel.Width <- 240.0
         let presetPanelBorder = Border()
         presetPanelBorder.Child <- presetPanel
-        presetPanelBorder.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        presetPanelBorder.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        presetPanelBorder.CornerRadius <- CornerRadius(12.0)
+        presetPanelBorder.Opacity <- 0.9
         presetPanelBorder.BorderThickness <- Thickness(1.0)
-        presetPanelBorder.CornerRadius <- CornerRadius(8.0)
+        
+        // Enhanced glass effect for preset panel
+        let presetPanelGradient = LinearGradientBrush()
+        presetPanelGradient.StartPoint <- RelativePoint(0.0, 0.0, RelativeUnit.Relative)
+        presetPanelGradient.EndPoint <- RelativePoint(0.0, 1.0, RelativeUnit.Relative)
+        
+        if currentTheme = Light then
+            presetPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 255uy, 255uy, 255uy), 0.0))
+            presetPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 248uy, 250uy, 252uy), 1.0))
+        else
+            presetPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 45uy, 55uy, 70uy), 0.0))
+            presetPanelGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 31uy, 41uy, 55uy), 1.0))
+        
+        presetPanelBorder.Background <- presetPanelGradient :> IBrush
+        presetPanelBorder.BorderBrush <- SolidColorBrush(Color.FromArgb(120uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
         DockPanel.SetDock(presetPanelBorder, Dock.Right)
         mainPanel.Children.Add(presetPanelBorder)
         
-        // Center - visual canvas
+        // Center - visual canvas with enhanced styling
         let canvasContainer = Border()
-        canvasContainer.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        canvasContainer.CornerRadius <- CornerRadius(12.0)
         canvasContainer.BorderThickness <- Thickness(1.0)
-        canvasContainer.CornerRadius <- CornerRadius(8.0)
-        canvasContainer.Background <- SolidColorBrush(colors.Surface) :> IBrush
+        canvasContainer.Opacity <- 0.95
+        
+        // Enhanced canvas gradient background
+        let canvasGradient = RadialGradientBrush()
+        canvasGradient.Center <- RelativePoint(0.5, 0.5, RelativeUnit.Relative)
+        canvasGradient.Radius <- 1.2
+        
+        if currentTheme = Light then
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 250uy, 252uy, 255uy), 0.0))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(180uy, 241uy, 245uy, 249uy), 0.6))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 226uy, 232uy, 240uy), 1.0))
+        else
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(220uy, 30uy, 38uy, 52uy), 0.0))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(180uy, 24uy, 32uy, 47uy), 0.6))
+            canvasGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 17uy, 24uy, 39uy), 1.0))
+        
+        canvasContainer.Background <- canvasGradient :> IBrush
+        canvasContainer.BorderBrush <- SolidColorBrush(Color.FromArgb(120uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
         
         let displayCanvas = createDisplayCanvas displays onDisplayChanged
         canvasContainer.Child <- displayCanvas
@@ -896,14 +966,28 @@ module GUI =
         
         let themeToggleButton = Button()
         themeToggleButton.Content <- if currentTheme = Light then "🌙" else "☀️"
-        themeToggleButton.Width <- 40.0
-        themeToggleButton.Height <- 40.0
-        themeToggleButton.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        themeToggleButton.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        themeToggleButton.Width <- 45.0
+        themeToggleButton.Height <- 45.0
+        themeToggleButton.CornerRadius <- CornerRadius(22.5)
+        themeToggleButton.FontSize <- 18.0
+        themeToggleButton.Opacity <- 0.9
         themeToggleButton.BorderThickness <- Thickness(1.0)
+        
+        // Glass effect for theme toggle
+        let themeToggleGradient = RadialGradientBrush()
+        themeToggleGradient.Center <- RelativePoint(0.3, 0.3, RelativeUnit.Relative)
+        themeToggleGradient.Radius <- 1.0
+        
+        if currentTheme = Light then
+            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 255uy, 255uy, 255uy), 0.0))
+            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 240uy, 245uy, 250uy), 1.0))
+        else
+            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(200uy, 60uy, 70uy, 85uy), 0.0))
+            themeToggleGradient.GradientStops.Add(GradientStop(Color.FromArgb(160uy, 40uy, 50uy, 65uy), 1.0))
+        
+        themeToggleButton.Background <- themeToggleGradient :> IBrush
+        themeToggleButton.BorderBrush <- SolidColorBrush(Color.FromArgb(150uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
         themeToggleButton.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-        themeToggleButton.CornerRadius <- CornerRadius(20.0)
-        themeToggleButton.FontSize <- 16.0
         ToolTip.SetTip(themeToggleButton, "Toggle theme")
         
         themeToggleOverlay.Children.Add(themeToggleButton)
@@ -916,9 +1000,9 @@ module GUI =
             refreshMainWindowContent ()
         )
         
-        // Main container with overlay
+        // Main container with overlay and acrylic background
         let rootGrid = Grid()
-        rootGrid.Children.Add(mainPanel)
+        rootGrid.Children.Add(acrylicBorder)
         rootGrid.Children.Add(themeToggleOverlay)
         
         rootGrid
@@ -929,16 +1013,17 @@ module GUI =
         window.Width <- 1200.0
         window.Height <- 700.0
         
+        // Enable transparency and modern window styling
+        window.TransparencyLevelHint <- [WindowTransparencyLevel.AcrylicBlur; WindowTransparencyLevel.Blur]
+        window.Background <- Brushes.Transparent
+        window.ExtendClientAreaToDecorationsHint <- true
+        
         // Store window reference
         mainWindow <- Some window
         
         // Create initial content
         let content = createMainContentPanel world adapter
         window.Content <- content
-        
-        // Apply theme-aware window background
-        let colors = getThemeColors currentTheme
-        window.Background <- SolidColorBrush(colors.Background) :> IBrush
         
         window
 
