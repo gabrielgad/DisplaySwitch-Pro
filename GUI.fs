@@ -651,24 +651,54 @@ module GUI =
         
         mainPanel
 
-    let rec createMainWindow (world: World) (adapter: IPlatformAdapter) =
+    // Global state for UI refresh
+    let mutable globalWorld = { Components = Components.empty; LastUpdate = DateTime.Now }
+    let mutable globalAdapter: IPlatformAdapter option = None
+    let mutable mainWindow: Window option = None
+    
+    let rec refreshMainWindowContent () =
+        match mainWindow with
+        | Some window ->
+            match globalAdapter with
+            | Some adapter ->
+                let content = createMainContentPanel globalWorld adapter
+                window.Content <- content
+                printfn "UI refreshed in-place"
+            | None -> ()
+        | None -> ()
+    
+    and createMainContentPanel (world: World) (adapter: IPlatformAdapter) =
         let colors = getThemeColors currentTheme
-        let window = Window()
-        window.Title <- "DisplaySwitch-Pro"
-        window.Width <- 1200.0
-        window.Height <- 700.0
-        window.Background <- SolidColorBrush(colors.Background) :> IBrush
-        window.Icon <- null  // We could add an icon later
+        
+        // Update global state
+        globalWorld <- world
+        globalAdapter <- Some adapter
         
         // Get current data
         let mutable currentWorld = world
         let displays = currentWorld.Components.ConnectedDisplays |> Map.values |> List.ofSeq
         let presets = PresetSystem.listPresets currentWorld
         
+        // Debug: Print current display positions when creating content
+        printfn "DEBUG: Creating content with displays:"
+        for display in displays do
+            printfn "  - %s at (%d, %d) enabled: %b" display.Id display.Position.X display.Position.Y display.IsEnabled
+        
         // Handle display changes from canvas
         let onDisplayChanged displayId (updatedDisplay: DisplayInfo) =
             let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
-            currentWorld <- { currentWorld with Components = updatedComponents }
+            
+            // Update current configuration to reflect the new display state
+            let allDisplays = updatedComponents.ConnectedDisplays |> Map.values |> List.ofSeq
+            let newConfig = {
+                Displays = allDisplays
+                Name = "Current"
+                CreatedAt = DateTime.Now
+            }
+            let componentsWithConfig = Components.setCurrentConfiguration newConfig updatedComponents
+            
+            currentWorld <- { currentWorld with Components = componentsWithConfig }
+            globalWorld <- currentWorld
             printfn "Display %s moved to (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
         
         // Simple data-only approach - no complex UI refresh"
@@ -719,27 +749,15 @@ module GUI =
                 saveButton.Click.Add(fun _ ->
                     let name = textBox.Text.Trim()
                     if not (String.IsNullOrEmpty(name)) then
-                        // Create configuration from current display states
-                        let currentDisplays = currentWorld.Components.ConnectedDisplays |> Map.values |> List.ofSeq
-                        let config = {
-                            Displays = currentDisplays
-                            Name = name
-                            CreatedAt = DateTime.Now
-                        }
+                        // Save the current configuration as a preset
                         currentWorld <- PresetSystem.saveCurrentAsPreset name currentWorld
+                        globalWorld <- currentWorld
                         printfn "Saving preset: %s" name
                         dialog.Close()
                         
-                        // Preset saved successfully - recreate window to show new preset
+                        // Preset saved successfully - refresh UI in-place
                         printfn "Preset saved successfully"
-                        let newWindow = createMainWindow currentWorld adapter
-                        match Application.Current.ApplicationLifetime with
-                        | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                            let oldWindow = desktop.MainWindow
-                            desktop.MainWindow <- newWindow
-                            newWindow.Show()
-                            oldWindow.Close()
-                        | _ -> ()
+                        refreshMainWindowContent ()
                 )
                 buttonPanel.Children.Add(saveButton)
                 
@@ -755,7 +773,9 @@ module GUI =
                 
                 panel.Children.Add(buttonPanel)
                 dialog.Content <- panel
-                dialog.ShowDialog(window) |> ignore
+                match mainWindow with
+                | Some parentWindow -> dialog.ShowDialog(parentWindow) |> ignore
+                | None -> dialog.Show()
             else
                 // Debug preset loading
                 printfn "Debug: Loading preset %s" presetName
@@ -765,27 +785,23 @@ module GUI =
                 | Some config ->
                     printfn "Debug: Found preset config with %d displays" config.Displays.Length
                     
-                    // Update world state
+                    // First, update world state with preset configuration
                     currentWorld <- PresetSystem.loadPreset presetName currentWorld
                     
-                    // Update all display positions from the loaded preset
+                    // Then, update all display positions from the loaded preset to ConnectedDisplays
+                    let mutable updatedComponents = currentWorld.Components
                     for display in config.Displays do
-                        printfn "Debug: Setting display %s to position (%d, %d)" display.Id display.Position.X display.Position.Y
-                        let updatedComponents = Components.addDisplay display currentWorld.Components
-                        currentWorld <- { currentWorld with Components = updatedComponents }
+                        printfn "Debug: Setting display %s to position (%d, %d) and enabled: %b" display.Id display.Position.X display.Position.Y display.IsEnabled
+                        updatedComponents <- Components.addDisplay display updatedComponents
                     
-                    // Data updated successfully - recreate window to show loaded preset
-                    printfn "Preset loaded - display data updated"
-                    let newWindow = createMainWindow currentWorld adapter
-                    match Application.Current.ApplicationLifetime with
-                    | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                        let oldWindow = desktop.MainWindow
-                        desktop.MainWindow <- newWindow
-                        newWindow.Show()
-                        oldWindow.Close()
-                    | _ -> ()
+                    currentWorld <- { currentWorld with Components = updatedComponents }
+                    globalWorld <- currentWorld
                     
-                    printfn "Loading preset: %s" presetName
+                    // Data updated successfully - refresh UI in-place
+                    printfn "Preset loaded - display data updated, refreshing UI"
+                    refreshMainWindowContent ()
+                    
+                    printfn "Loading preset: %s completed" presetName
                 | None ->
                     printfn "Debug: Preset %s not found!" presetName
         
@@ -816,24 +832,18 @@ module GUI =
         infoTitle.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
         infoPanel.Children.Add(infoTitle)
         
-        // Display toggle handler with window recreation
+        // Display toggle handler with in-place refresh
         let onDisplayToggle displayId isEnabled =
             let display = currentWorld.Components.ConnectedDisplays.[displayId]
             let updatedDisplay = { display with IsEnabled = isEnabled }
             let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
             currentWorld <- { currentWorld with Components = updatedComponents }
+            globalWorld <- currentWorld
             
             printfn "Display %s %s - updated in data model" displayId (if isEnabled then "enabled" else "disabled")
             
-            // Recreate window to reflect changes
-            let newWindow = createMainWindow currentWorld adapter
-            match Application.Current.ApplicationLifetime with
-            | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                let oldWindow = desktop.MainWindow
-                desktop.MainWindow <- newWindow
-                newWindow.Show()
-                oldWindow.Close()
-            | _ -> ()
+            // Refresh UI in-place
+            refreshMainWindowContent ()
         
         let displayList = createDisplayListView displays onDisplayToggle
         infoPanel.Children.Add(displayList)
@@ -847,17 +857,11 @@ module GUI =
             let updatedPresets = Map.remove presetName currentWorld.Components.SavedPresets
             let updatedComponents = { currentWorld.Components with SavedPresets = updatedPresets }
             currentWorld <- { currentWorld with Components = updatedComponents }
+            globalWorld <- currentWorld
             printfn "Deleted preset: %s" presetName
             
-            // Recreate window to reflect changes
-            let newWindow = createMainWindow currentWorld adapter
-            match Application.Current.ApplicationLifetime with
-            | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                let oldWindow = desktop.MainWindow
-                desktop.MainWindow <- newWindow
-                newWindow.Show()
-                oldWindow.Close()
-            | _ -> ()
+            // Refresh UI in-place
+            refreshMainWindowContent ()
         
         // Right side - presets panel
         let presetPanel = createPresetPanel presets onPresetClick onPresetDelete
@@ -908,17 +912,8 @@ module GUI =
             // Toggle theme
             currentTheme <- if currentTheme = Light then Dark else Light
             
-            // Recreate window with new theme
-            let newWindow = createMainWindow world adapter
-            
-            // Get the application and swap windows
-            match Application.Current.ApplicationLifetime with
-            | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                let oldWindow = desktop.MainWindow
-                desktop.MainWindow <- newWindow
-                newWindow.Show()
-                oldWindow.Close()
-            | _ -> ()
+            // Refresh UI in-place with new theme
+            refreshMainWindowContent ()
         )
         
         // Main container with overlay
@@ -926,7 +921,25 @@ module GUI =
         rootGrid.Children.Add(mainPanel)
         rootGrid.Children.Add(themeToggleOverlay)
         
-        window.Content <- rootGrid
+        rootGrid
+    
+    let createMainWindow (world: World) (adapter: IPlatformAdapter) =
+        let window = Window()
+        window.Title <- "DisplaySwitch-Pro"
+        window.Width <- 1200.0
+        window.Height <- 700.0
+        
+        // Store window reference
+        mainWindow <- Some window
+        
+        // Create initial content
+        let content = createMainContentPanel world adapter
+        window.Content <- content
+        
+        // Apply theme-aware window background
+        let colors = getThemeColors currentTheme
+        window.Background <- SolidColorBrush(colors.Background) :> IBrush
+        
         window
 
 // Simple Avalonia Application
