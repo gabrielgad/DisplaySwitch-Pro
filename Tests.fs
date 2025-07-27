@@ -457,6 +457,22 @@ let displayCanvasTests = testList "Display Canvas Tests" [
         
         Expect.isNotNull canvas "Display canvas should handle empty display list"
         Expect.equal changeCallCount 0 "No display changes should occur with empty list"
+        
+    testCase "Display API data verification" <| fun _ ->
+        printfn "\n=== DISPLAY API VERIFICATION ==="
+        let adapter = PlatformAdapter.create()
+        let displays = adapter.GetConnectedDisplays()
+        
+        printfn "Detected %d displays:" displays.Length
+        for i, display in List.indexed displays do
+            printfn "  [%d] %s" (i + 1) display.Id
+            printfn "      Name: %s" display.Name
+            printfn "      Resolution: %dx%d @ %dHz" display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate
+            printfn "      Position: (%d, %d)" display.Position.X display.Position.Y
+            printfn "      Primary: %b, Enabled: %b" display.IsPrimary display.IsEnabled
+            printfn ""
+        
+        Expect.isGreaterThan displays.Length 0 "Should detect at least one display"
 ]
 
 // Test runner - call this function to run tests programmatically

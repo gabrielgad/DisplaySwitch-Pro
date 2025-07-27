@@ -38,7 +38,7 @@ module GUI =
         
         printfn "DEBUG: Creating content with displays:"
         for display in displays do
-            printfn "  - %s at (%d, %d) enabled: %b" display.Id display.Position.X display.Position.Y display.IsEnabled
+            printfn "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled
         
         let onDisplayChanged displayId (updatedDisplay: DisplayInfo) =
             let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
@@ -372,7 +372,7 @@ module GUI =
         
         window.TransparencyLevelHint <- [WindowTransparencyLevel.AcrylicBlur; WindowTransparencyLevel.Blur]
         window.Background <- Brushes.Transparent
-        window.ExtendClientAreaToDecorationsHint <- true
+        window.ExtendClientAreaToDecorationsHint <- false
         
         mainWindow <- Some window
         
