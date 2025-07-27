@@ -82,7 +82,23 @@ module GUI =
                 textBox.Background <- SolidColorBrush(colors.Surface) :> IBrush
                 textBox.Foreground <- SolidColorBrush(colors.Text) :> IBrush
                 textBox.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
-                textBox.SelectAll()
+                textBox.CaretBrush <- SolidColorBrush(colors.Text) :> IBrush
+                textBox.SelectionBrush <- SolidColorBrush(Color.FromArgb(100uy, colors.Primary.R, colors.Primary.G, colors.Primary.B)) :> IBrush
+                textBox.SelectionForegroundBrush <- SolidColorBrush(colors.Surface) :> IBrush
+                
+                // Add Enter key support to save preset
+                textBox.KeyDown.Add(fun e ->
+                    if e.Key = Avalonia.Input.Key.Enter then
+                        let name = textBox.Text.Trim()
+                        if not (String.IsNullOrEmpty(name)) then
+                            currentWorld <- PresetSystem.saveCurrentAsPreset name currentWorld
+                            globalWorld <- currentWorld
+                            printfn "Saving preset: %s" name
+                            dialog.Close()
+                            printfn "Preset saved successfully"
+                            refreshMainWindowContent ()
+                )
+                
                 panel.Children.Add(textBox)
                 
                 let buttonPanel = StackPanel()
@@ -121,6 +137,13 @@ module GUI =
                 
                 panel.Children.Add(buttonPanel)
                 dialog.Content <- panel
+                
+                // Auto-focus and select text when dialog opens
+                dialog.Opened.Add(fun _ ->
+                    textBox.Focus() |> ignore
+                    textBox.SelectAll()
+                )
+                
                 match mainWindow with
                 | Some parentWindow -> dialog.ShowDialog(parentWindow) |> ignore
                 | None -> dialog.Show()
