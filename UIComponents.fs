@@ -397,6 +397,39 @@ module UIComponents =
         let mutable selectedRefreshRate: int option = None
         let mutable refreshRatePanel: StackPanel option = None
         
+        // Define button state update function early (will be populated with actual buttons later)
+        let mutable testButton: Border option = None
+        let mutable applyButton: Border option = None
+        let mutable testText: TextBlock option = None
+        let mutable applyText: TextBlock option = None
+        
+        let updateButtonStates () =
+            let isSelectionMade = selectedResolution.IsSome && selectedRefreshRate.IsSome
+            
+            match testButton, applyButton, testText, applyText with
+            | Some tb, Some ab, Some tt, Some at ->
+                if isSelectionMade then
+                    tb.IsEnabled <- true
+                    tb.Opacity <- 1.0
+                    tb.Background <- SolidColorBrush(colors.Secondary)
+                    tt.Foreground <- SolidColorBrush(Colors.White)
+                    
+                    ab.IsEnabled <- true
+                    ab.Opacity <- 1.0
+                    ab.Background <- SolidColorBrush(colors.Primary)
+                    at.Foreground <- SolidColorBrush(Colors.White)
+                else
+                    tb.IsEnabled <- false
+                    tb.Opacity <- 0.5
+                    tb.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                    tt.Foreground <- SolidColorBrush(colors.Text)
+                    
+                    ab.IsEnabled <- false
+                    ab.Opacity <- 0.5
+                    ab.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+                    at.Foreground <- SolidColorBrush(colors.Text)
+            | _ -> () // Buttons not yet created
+        
         // Left panel: Resolution selection
         let resolutionPanel = Border()
         resolutionPanel.Background <- SolidColorBrush(colors.Surface)
@@ -480,6 +513,7 @@ module UIComponents =
                     resolutionButton.Background <- SolidColorBrush(colors.Primary)
                     resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
                     selectedResolution <- Some (width, height)
+                    updateButtonStates()
                 
                 // Handle mouse click on the border
                 resolutionButton.PointerPressed.Add(fun _ ->
@@ -499,6 +533,7 @@ module UIComponents =
                     // Highlight selected resolution
                     resolutionButton.Background <- SolidColorBrush(colors.Primary)
                     resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                    updateButtonStates()
                     
                     // Update refresh rate panel
                     match refreshRatePanel with
@@ -545,13 +580,13 @@ module UIComponents =
                             refreshText.Foreground <- SolidColorBrush(colors.Text)
                             refreshButton.Child <- refreshText
                             
-                            // Add hover effects for better visibility - FIXED VERSION
+                            // Add hover effects for better visibility - SELECTION AWARE VERSION
                             let isCurrentRefreshRate = width = caps.CurrentMode.Width && height = caps.CurrentMode.Height && refreshRate = caps.CurrentMode.RefreshRate
-                            let normalRefreshBg = if isCurrentRefreshRate then SolidColorBrush(colors.Secondary) else SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
-                            let normalRefreshFg = if isCurrentRefreshRate then SolidColorBrush(colors.Surface) else SolidColorBrush(colors.Text)
                             
                             refreshButton.PointerEntered.Add(fun _ ->
-                                if not isCurrentRefreshRate then
+                                // Check if this refresh rate is currently selected (not just the current system refresh rate)
+                                let isSelected = selectedRefreshRate = Some refreshRate
+                                if not isSelected then
                                     // Theme-aware blue hover colors
                                     let hoverRefreshBg, hoverRefreshFg = if Theme.currentTheme = Theme.Light then 
                                                                             SolidColorBrush(Color.FromRgb(59uy, 130uy, 246uy)), SolidColorBrush(Colors.White) // Blue-500 for light theme
@@ -562,8 +597,16 @@ module UIComponents =
                             )
                             
                             refreshButton.PointerExited.Add(fun _ ->
-                                refreshButton.Background <- normalRefreshBg
-                                refreshText.Foreground <- normalRefreshFg  // Update TextBlock foreground
+                                // Check if this refresh rate is currently selected when exiting hover
+                                let isSelected = selectedRefreshRate = Some refreshRate
+                                if isSelected then
+                                    // Keep selected styling
+                                    refreshButton.Background <- SolidColorBrush(colors.Secondary)
+                                    refreshText.Foreground <- SolidColorBrush(colors.Surface)
+                                else
+                                    // Return to normal styling
+                                    refreshButton.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                                    refreshText.Foreground <- SolidColorBrush(colors.Text)
                             )
                             
                             // Highlight current refresh rate if this resolution matches current
@@ -571,6 +614,7 @@ module UIComponents =
                                 refreshButton.Background <- SolidColorBrush(colors.Secondary)
                                 refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
                                 selectedRefreshRate <- Some refreshRate
+                                updateButtonStates()
                             
                             // Handle mouse click on the border
                             refreshButton.PointerPressed.Add(fun _ ->
@@ -588,6 +632,7 @@ module UIComponents =
                                 // Highlight selected refresh rate
                                 refreshButton.Background <- SolidColorBrush(colors.Secondary)
                                 refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                                updateButtonStates()
                                 
                                 printfn "DEBUG: Selected %dx%d @ %dHz" width height refreshRate
                             )
@@ -661,28 +706,73 @@ module UIComponents =
         cancelButton.Click.Add(fun _ -> onClose())
         buttonPanel.Children.Add(cancelButton)
         
-        let testButton = Button()
-        testButton.Content <- "Test 15s"
-        testButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
-        testButton.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
-        testButton.Background <- SolidColorBrush(colors.Secondary)
-        testButton.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
-        testButton.BorderThickness <- Thickness(0.0)
-        testButton.CornerRadius <- CornerRadius(6.0)
-        testButton.Cursor <- new Cursor(StandardCursorType.Hand)
-        testButton.IsEnabled <- false // Will enable when selection is made
-        buttonPanel.Children.Add(testButton)
+        let testButtonElement = Border()
+        testButtonElement.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
+        testButtonElement.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
+        testButtonElement.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+        testButtonElement.BorderBrush <- SolidColorBrush(colors.Border)
+        testButtonElement.BorderThickness <- Thickness(1.0)
+        testButtonElement.CornerRadius <- CornerRadius(6.0)
+        testButtonElement.Cursor <- new Cursor(StandardCursorType.Hand)
+        testButtonElement.IsEnabled <- false // Will enable when selection is made
+        testButtonElement.Opacity <- 0.5 // Visual indication of disabled state
         
-        let applyButton = Button()
-        applyButton.Content <- "Apply"
-        applyButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
-        applyButton.Background <- SolidColorBrush(colors.Primary)
-        applyButton.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
-        applyButton.BorderThickness <- Thickness(0.0)
-        applyButton.CornerRadius <- CornerRadius(6.0)
-        applyButton.Cursor <- new Cursor(StandardCursorType.Hand)
-        applyButton.IsEnabled <- false // Will enable when selection is made
-        buttonPanel.Children.Add(applyButton)
+        let testTextElement = TextBlock()
+        testTextElement.Text <- "Test 15s"
+        testTextElement.HorizontalAlignment <- HorizontalAlignment.Center
+        testTextElement.VerticalAlignment <- VerticalAlignment.Center
+        testTextElement.Foreground <- SolidColorBrush(colors.Text)
+        testButtonElement.Child <- testTextElement
+        
+        // Assign to mutable variables for updateButtonStates function
+        testButton <- Some testButtonElement
+        testText <- Some testTextElement
+        
+        buttonPanel.Children.Add(testButtonElement)
+        
+        let applyButtonElement = Border()
+        applyButtonElement.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
+        applyButtonElement.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+        applyButtonElement.BorderBrush <- SolidColorBrush(colors.Border)
+        applyButtonElement.BorderThickness <- Thickness(1.0)
+        applyButtonElement.CornerRadius <- CornerRadius(6.0)
+        applyButtonElement.Cursor <- new Cursor(StandardCursorType.Hand)
+        applyButtonElement.IsEnabled <- false // Will enable when selection is made
+        applyButtonElement.Opacity <- 0.5 // Visual indication of disabled state
+        
+        let applyTextElement = TextBlock()
+        applyTextElement.Text <- "Apply"
+        applyTextElement.HorizontalAlignment <- HorizontalAlignment.Center
+        applyTextElement.VerticalAlignment <- VerticalAlignment.Center
+        applyTextElement.Foreground <- SolidColorBrush(colors.Text)
+        applyButtonElement.Child <- applyTextElement
+        
+        // Assign to mutable variables for updateButtonStates function
+        applyButton <- Some applyButtonElement
+        applyText <- Some applyTextElement
+        
+        buttonPanel.Children.Add(applyButtonElement)
+        
+        // Add click handlers
+        testButtonElement.PointerPressed.Add(fun _ ->
+            if testButtonElement.IsEnabled && selectedResolution.IsSome && selectedRefreshRate.IsSome then
+                match selectedResolution, selectedRefreshRate with
+                | Some (width, height), Some refreshRate ->
+                    let mode = { Width = width; Height = height; RefreshRate = refreshRate; BitsPerPixel = 32 }
+                    printfn "Test mode: %dx%d @ %dHz for 15 seconds" width height refreshRate
+                    // TODO: Implement 15-second test functionality
+                | _ -> ()
+        )
+        
+        applyButtonElement.PointerPressed.Add(fun _ ->
+            if applyButtonElement.IsEnabled && selectedResolution.IsSome && selectedRefreshRate.IsSome then
+                match selectedResolution, selectedRefreshRate with
+                | Some (width, height), Some refreshRate ->
+                    let mode = { Width = width; Height = height; RefreshRate = refreshRate; BitsPerPixel = 32 }
+                    onApply display.Id mode
+                    onClose()
+                | _ -> ()
+        )
         
         contentGrid.Children.Add(buttonPanel)
         
