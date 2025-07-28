@@ -324,26 +324,9 @@ module UIComponents =
         
         stackPanel
 
-    // Resolution picker dialog window for selecting display modes
-    let createResolutionPickerDialog (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
+    // Creates just the content for the resolution picker dialog (for updating existing dialogs)
+    let createResolutionPickerDialogContent (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
         let colors = Theme.getCurrentColors()
-        
-        // Create dialog window
-        let dialogWindow = Window()
-        dialogWindow.Title <- sprintf "Display Settings - %s" display.Name
-        dialogWindow.Width <- 700.0
-        dialogWindow.Height <- 550.0
-        dialogWindow.MinWidth <- 600.0
-        dialogWindow.MinHeight <- 400.0
-        dialogWindow.CanResize <- true
-        dialogWindow.WindowStartupLocation <- WindowStartupLocation.CenterScreen
-        dialogWindow.Background <- SolidColorBrush(colors.Background)
-        
-        // Set icon (if available)
-        try
-            dialogWindow.Icon <- WindowIcon("icon.ico")
-        with
-        | _ -> () // Ignore if icon file not found
         
         // Modal content
         let contentGrid = Grid()
@@ -402,15 +385,260 @@ module UIComponents =
         contentScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
         Grid.SetRow(contentScrollViewer, 2)
         
-        // Placeholder for resolution/refresh rate panels (Phase 2.3)
-        let panelsPlaceholder = TextBlock()
-        panelsPlaceholder.Text <- "Resolution and refresh rate selection panels will go here"
-        panelsPlaceholder.Foreground <- SolidColorBrush(colors.TextSecondary)
-        panelsPlaceholder.HorizontalAlignment <- HorizontalAlignment.Center
-        panelsPlaceholder.VerticalAlignment <- VerticalAlignment.Center
-        panelsPlaceholder.Margin <- Thickness(20.0)
+        // Two-panel layout: resolutions (left) + refresh rates (right)
+        let panelsGrid = Grid()
+        panelsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Star)) // Resolutions
+        panelsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength(10.0, GridUnitType.Pixel))) // Spacing
+        panelsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Star)) // Refresh rates
+        panelsGrid.Margin <- Thickness(10.0)
         
-        contentScrollViewer.Content <- panelsPlaceholder
+        // Mutable state for selection tracking
+        let mutable selectedResolution: (int * int) option = None
+        let mutable selectedRefreshRate: int option = None
+        let mutable refreshRatePanel: StackPanel option = None
+        
+        // Left panel: Resolution selection
+        let resolutionPanel = Border()
+        resolutionPanel.Background <- SolidColorBrush(colors.Surface)
+        resolutionPanel.BorderBrush <- SolidColorBrush(colors.Border)
+        resolutionPanel.BorderThickness <- Thickness(1.0)
+        resolutionPanel.CornerRadius <- CornerRadius(6.0)
+        resolutionPanel.Padding <- Thickness(10.0)
+        Grid.SetColumn(resolutionPanel, 0)
+        
+        let resolutionContent = StackPanel()
+        resolutionContent.Orientation <- Orientation.Vertical
+        
+        let resolutionTitle = TextBlock()
+        resolutionTitle.Text <- "📐 Resolution"
+        resolutionTitle.FontSize <- 14.0
+        resolutionTitle.FontWeight <- FontWeight.SemiBold
+        resolutionTitle.Foreground <- SolidColorBrush(colors.Text)
+        resolutionTitle.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
+        resolutionContent.Children.Add(resolutionTitle)
+        
+        let resolutionScrollViewer = ScrollViewer()
+        resolutionScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        resolutionScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        resolutionScrollViewer.MaxHeight <- 300.0
+        
+        let resolutionList = StackPanel()
+        resolutionList.Orientation <- Orientation.Vertical
+        resolutionList.Spacing <- 2.0
+        
+        // Populate resolution list from display capabilities
+        match display.Capabilities with
+        | Some caps ->
+            let sortedResolutions = 
+                caps.GroupedResolutions 
+                |> Map.toList 
+                |> List.sortByDescending (fun ((w, h), _) -> w * h) // Sort by total pixels
+            
+            for ((width, height), refreshRates) in sortedResolutions do
+                // Use Border with TextBlock instead of Button to avoid default hover styling
+                let resolutionButton = Border()
+                resolutionButton.HorizontalAlignment <- HorizontalAlignment.Stretch
+                resolutionButton.Padding <- Thickness(10.0, 8.0)
+                resolutionButton.Margin <- Thickness(0.0, 1.0)
+                resolutionButton.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+                resolutionButton.BorderBrush <- SolidColorBrush(colors.Border)
+                resolutionButton.BorderThickness <- Thickness(1.0)
+                resolutionButton.CornerRadius <- CornerRadius(4.0)
+                resolutionButton.Cursor <- new Cursor(StandardCursorType.Hand)
+                
+                // Add TextBlock child for the content
+                let resolutionText = TextBlock()
+                resolutionText.Text <- sprintf "%d × %d" width height
+                resolutionText.HorizontalAlignment <- HorizontalAlignment.Left
+                resolutionText.VerticalAlignment <- VerticalAlignment.Center
+                resolutionText.Foreground <- SolidColorBrush(colors.Text)
+                resolutionButton.Child <- resolutionText
+                
+                // Add hover effects for better visibility - FIXED VERSION
+                let isCurrentResolution = width = caps.CurrentMode.Width && height = caps.CurrentMode.Height
+                let normalBg = if isCurrentResolution then SolidColorBrush(colors.Primary) else SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+                let normalFg = if isCurrentResolution then SolidColorBrush(colors.Surface) else SolidColorBrush(colors.Text)
+                
+                resolutionButton.PointerEntered.Add(fun _ ->
+                    if not isCurrentResolution then
+                        // Theme-aware blue hover colors matching refresh rate colors
+                        let hoverBg, hoverFg = if Theme.currentTheme = Theme.Light then 
+                                                 SolidColorBrush(Color.FromRgb(59uy, 130uy, 246uy)), SolidColorBrush(Colors.White) // Blue-500 for light theme
+                                               else 
+                                                 SolidColorBrush(Color.FromRgb(96uy, 165uy, 250uy)), SolidColorBrush(Colors.White) // Blue-400 for dark theme
+                        resolutionButton.Background <- hoverBg
+                        resolutionText.Foreground <- hoverFg  // Update TextBlock foreground instead of Border
+                )
+                
+                resolutionButton.PointerExited.Add(fun _ ->
+                    resolutionButton.Background <- normalBg
+                    resolutionText.Foreground <- normalFg  // Update TextBlock foreground instead of Border
+                )
+                
+                // Highlight current resolution
+                if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height then
+                    resolutionButton.Background <- SolidColorBrush(colors.Primary)
+                    resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                    selectedResolution <- Some (width, height)
+                
+                // Handle mouse click on the border
+                resolutionButton.PointerPressed.Add(fun _ ->
+                    // Update selection
+                    selectedResolution <- Some (width, height)
+                    selectedRefreshRate <- None
+                    
+                    // Reset all resolution button styles
+                    for child in resolutionList.Children do
+                        if child :? Border then
+                            let border = child :?> Border
+                            border.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+                            if border.Child :? TextBlock then
+                                let textBlock = border.Child :?> TextBlock
+                                textBlock.Foreground <- SolidColorBrush(colors.Text)
+                    
+                    // Highlight selected resolution
+                    resolutionButton.Background <- SolidColorBrush(colors.Primary)
+                    resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                    
+                    // Update refresh rate panel
+                    match refreshRatePanel with
+                    | Some panel -> 
+                        panel.Children.Clear()
+                        
+                        let refreshTitle = TextBlock()
+                        refreshTitle.Text <- "🔄 Refresh Rate"
+                        refreshTitle.FontSize <- 14.0
+                        refreshTitle.FontWeight <- FontWeight.SemiBold
+                        refreshTitle.Foreground <- SolidColorBrush(colors.Text)
+                        refreshTitle.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
+                        panel.Children.Add(refreshTitle)
+                        
+                        let refreshScrollViewer = ScrollViewer()
+                        refreshScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+                        refreshScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+                        refreshScrollViewer.MaxHeight <- 300.0
+                        
+                        let refreshList = StackPanel()
+                        refreshList.Orientation <- Orientation.Vertical
+                        refreshList.Spacing <- 2.0
+                        
+                        // Sort refresh rates from highest to lowest
+                        let sortedRefreshRates = refreshRates |> List.sortByDescending id
+                        
+                        for refreshRate in sortedRefreshRates do
+                            // Use Border with TextBlock instead of Button to avoid default hover styling
+                            let refreshButton = Border()
+                            refreshButton.HorizontalAlignment <- HorizontalAlignment.Stretch
+                            refreshButton.Padding <- Thickness(10.0, 8.0)
+                            refreshButton.Margin <- Thickness(0.0, 1.0)
+                            refreshButton.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                            refreshButton.BorderBrush <- SolidColorBrush(colors.Border)
+                            refreshButton.BorderThickness <- Thickness(1.0)
+                            refreshButton.CornerRadius <- CornerRadius(4.0)
+                            refreshButton.Cursor <- new Cursor(StandardCursorType.Hand)
+                            
+                            // Add TextBlock child for the content
+                            let refreshText = TextBlock()
+                            refreshText.Text <- sprintf "%d Hz" refreshRate
+                            refreshText.HorizontalAlignment <- HorizontalAlignment.Left
+                            refreshText.VerticalAlignment <- VerticalAlignment.Center
+                            refreshText.Foreground <- SolidColorBrush(colors.Text)
+                            refreshButton.Child <- refreshText
+                            
+                            // Add hover effects for better visibility - FIXED VERSION
+                            let isCurrentRefreshRate = width = caps.CurrentMode.Width && height = caps.CurrentMode.Height && refreshRate = caps.CurrentMode.RefreshRate
+                            let normalRefreshBg = if isCurrentRefreshRate then SolidColorBrush(colors.Secondary) else SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                            let normalRefreshFg = if isCurrentRefreshRate then SolidColorBrush(colors.Surface) else SolidColorBrush(colors.Text)
+                            
+                            refreshButton.PointerEntered.Add(fun _ ->
+                                if not isCurrentRefreshRate then
+                                    // Theme-aware blue hover colors
+                                    let hoverRefreshBg, hoverRefreshFg = if Theme.currentTheme = Theme.Light then 
+                                                                            SolidColorBrush(Color.FromRgb(59uy, 130uy, 246uy)), SolidColorBrush(Colors.White) // Blue-500 for light theme
+                                                                          else 
+                                                                            SolidColorBrush(Color.FromRgb(96uy, 165uy, 250uy)), SolidColorBrush(Colors.White) // Blue-400 for dark theme
+                                    refreshButton.Background <- hoverRefreshBg
+                                    refreshText.Foreground <- hoverRefreshFg  // Update TextBlock foreground
+                            )
+                            
+                            refreshButton.PointerExited.Add(fun _ ->
+                                refreshButton.Background <- normalRefreshBg
+                                refreshText.Foreground <- normalRefreshFg  // Update TextBlock foreground
+                            )
+                            
+                            // Highlight current refresh rate if this resolution matches current
+                            if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height && refreshRate = caps.CurrentMode.RefreshRate then
+                                refreshButton.Background <- SolidColorBrush(colors.Secondary)
+                                refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                                selectedRefreshRate <- Some refreshRate
+                            
+                            // Handle mouse click on the border
+                            refreshButton.PointerPressed.Add(fun _ ->
+                                selectedRefreshRate <- Some refreshRate
+                                
+                                // Reset all refresh rate button styles
+                                for child in refreshList.Children do
+                                    if child :? Border then
+                                        let border = child :?> Border
+                                        border.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                                        if border.Child :? TextBlock then
+                                            let textBlock = border.Child :?> TextBlock
+                                            textBlock.Foreground <- SolidColorBrush(colors.Text)
+                                
+                                // Highlight selected refresh rate
+                                refreshButton.Background <- SolidColorBrush(colors.Secondary)
+                                refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                                
+                                printfn "DEBUG: Selected %dx%d @ %dHz" width height refreshRate
+                            )
+                            
+                            refreshList.Children.Add(refreshButton)
+                        
+                        refreshScrollViewer.Content <- refreshList
+                        panel.Children.Add(refreshScrollViewer)
+                    | None -> ()
+                )
+                
+                resolutionList.Children.Add(resolutionButton)
+        | None ->
+            let noDataText = TextBlock()
+            noDataText.Text <- "No resolution data available"
+            noDataText.Foreground <- SolidColorBrush(colors.TextSecondary)
+            noDataText.HorizontalAlignment <- HorizontalAlignment.Center
+            noDataText.Margin <- Thickness(20.0)
+            resolutionList.Children.Add(noDataText)
+        
+        resolutionScrollViewer.Content <- resolutionList
+        resolutionContent.Children.Add(resolutionScrollViewer)
+        resolutionPanel.Child <- resolutionContent
+        panelsGrid.Children.Add(resolutionPanel)
+        
+        // Right panel: Refresh rate selection (initially empty)
+        let refreshRateMainPanel = Border()
+        refreshRateMainPanel.Background <- SolidColorBrush(colors.Surface)
+        refreshRateMainPanel.BorderBrush <- SolidColorBrush(colors.Border)
+        refreshRateMainPanel.BorderThickness <- Thickness(1.0)
+        refreshRateMainPanel.CornerRadius <- CornerRadius(6.0)
+        refreshRateMainPanel.Padding <- Thickness(10.0)
+        Grid.SetColumn(refreshRateMainPanel, 2)
+        
+        let refreshRatePanelContent = StackPanel()
+        refreshRatePanelContent.Orientation <- Orientation.Vertical
+        refreshRatePanel <- Some refreshRatePanelContent
+        
+        let refreshPlaceholder = TextBlock()
+        refreshPlaceholder.Text <- "Select a resolution to view available refresh rates"
+        refreshPlaceholder.Foreground <- SolidColorBrush(colors.TextSecondary)
+        refreshPlaceholder.HorizontalAlignment <- HorizontalAlignment.Center
+        refreshPlaceholder.VerticalAlignment <- VerticalAlignment.Center
+        refreshPlaceholder.TextAlignment <- TextAlignment.Center
+        refreshPlaceholder.Margin <- Thickness(20.0)
+        refreshRatePanelContent.Children.Add(refreshPlaceholder)
+        
+        refreshRateMainPanel.Child <- refreshRatePanelContent
+        panelsGrid.Children.Add(refreshRateMainPanel)
+        
+        contentScrollViewer.Content <- panelsGrid
         contentGrid.Children.Add(contentScrollViewer)
         
         // Bottom buttons
@@ -430,9 +658,7 @@ module UIComponents =
         cancelButton.BorderThickness <- Thickness(1.0)
         cancelButton.CornerRadius <- CornerRadius(6.0)
         cancelButton.Cursor <- new Cursor(StandardCursorType.Hand)
-        cancelButton.Click.Add(fun _ -> 
-            dialogWindow.Close()
-            onClose())
+        cancelButton.Click.Add(fun _ -> onClose())
         buttonPanel.Children.Add(cancelButton)
         
         let testButton = Button()
@@ -440,7 +666,7 @@ module UIComponents =
         testButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
         testButton.Margin <- Thickness(0.0, 0.0, 10.0, 0.0)
         testButton.Background <- SolidColorBrush(colors.Secondary)
-        testButton.Foreground <- Brushes.White
+        testButton.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
         testButton.BorderThickness <- Thickness(0.0)
         testButton.CornerRadius <- CornerRadius(6.0)
         testButton.Cursor <- new Cursor(StandardCursorType.Hand)
@@ -451,7 +677,7 @@ module UIComponents =
         applyButton.Content <- "Apply"
         applyButton.Padding <- Thickness(20.0, 8.0, 20.0, 8.0)
         applyButton.Background <- SolidColorBrush(colors.Primary)
-        applyButton.Foreground <- Brushes.White
+        applyButton.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
         applyButton.BorderThickness <- Thickness(0.0)
         applyButton.CornerRadius <- CornerRadius(6.0)
         applyButton.Cursor <- new Cursor(StandardCursorType.Hand)
@@ -459,6 +685,35 @@ module UIComponents =
         buttonPanel.Children.Add(applyButton)
         
         contentGrid.Children.Add(buttonPanel)
+        
+        // Return just the content grid
+        contentGrid
+
+    // Resolution picker dialog window for selecting display modes
+    let createResolutionPickerDialog (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
+        let colors = Theme.getCurrentColors()
+        
+        // Create dialog window
+        let dialogWindow = Window()
+        dialogWindow.Title <- sprintf "Display Settings - %s" display.Name
+        dialogWindow.Width <- 700.0
+        dialogWindow.Height <- 550.0
+        dialogWindow.MinWidth <- 600.0
+        dialogWindow.MinHeight <- 400.0
+        dialogWindow.CanResize <- true
+        dialogWindow.WindowStartupLocation <- WindowStartupLocation.CenterScreen
+        dialogWindow.Background <- SolidColorBrush(colors.Background)
+        
+        // Set icon (if available)
+        try
+            dialogWindow.Icon <- WindowIcon("icon.ico")
+        with
+        | _ -> () // Ignore if icon file not found
+        
+        // Create content using the shared content creation function
+        let contentGrid = createResolutionPickerDialogContent display onApply (fun () ->
+            dialogWindow.Close()
+            onClose())
         
         // Set window content
         dialogWindow.Content <- contentGrid

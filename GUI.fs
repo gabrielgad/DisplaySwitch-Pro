@@ -8,6 +8,7 @@ open Avalonia.Controls.Primitives
 open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Threading
 open Avalonia.Themes.Fluent
 
 module GUI =
@@ -15,6 +16,8 @@ module GUI =
     let mutable globalWorld = { Components = Components.empty; LastUpdate = DateTime.Now }
     let mutable globalAdapter: IPlatformAdapter option = None
     let mutable mainWindow: Window option = None
+    let mutable globalDisplaySettingsDialog: Window option = None
+    let mutable globalCurrentDialogDisplay: DisplayInfo option = None
     
     let rec refreshMainWindowContent () =
         match mainWindow with
@@ -36,9 +39,6 @@ module GUI =
         let mutable currentWorld = world
         let displays = currentWorld.Components.ConnectedDisplays |> Map.values |> List.ofSeq
         let presets = PresetSystem.listPresets currentWorld
-        
-        // Shared dialog window for all displays
-        let mutable displaySettingsDialog: Window option = None
         
         printfn "DEBUG: Creating content with displays:"
         for display in displays do
@@ -260,10 +260,6 @@ module GUI =
             printfn "DEBUG: Updating dialog content for display: %s" display.Name
             dialog.Title <- sprintf "Display Settings - %s" display.Name
             
-            // TODO: Update dialog content here when we implement the panels
-            // For now, we'll recreate the content
-            let colors = Theme.getCurrentColors()
-            
             // Create modal handlers
             let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
                 printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
@@ -271,26 +267,38 @@ module GUI =
             
             let onCloseDialog () =
                 printfn "DEBUG: Dialog closed"
-                displaySettingsDialog <- None
+                globalDisplaySettingsDialog <- None
             
-            // Recreate dialog content for now (will optimize later)
-            let newDialog = UIComponents.createResolutionPickerDialog display onApplyMode onCloseDialog
-            dialog.Content <- newDialog.Content
+            // Create new content for the dialog instead of a new dialog window
+            let dialogContent = UIComponents.createResolutionPickerDialogContent display onApplyMode onCloseDialog
+            dialog.Content <- dialogContent
         
         // Handler for opening display settings dialog
         let rec onDisplaySettingsClick (display: DisplayInfo) =
             printfn "DEBUG: Opening settings for display: %s" display.Name
             
-            match displaySettingsDialog with
+            match globalDisplaySettingsDialog with
             | Some existingDialog when not existingDialog.IsVisible ->
                 // Dialog exists but was closed, create new one
-                displaySettingsDialog <- None
+                globalDisplaySettingsDialog <- None
                 onDisplaySettingsClick display
             | Some existingDialog ->
-                // Dialog exists and is visible, update its content
-                updateDialogForDisplay existingDialog display
-                existingDialog.Activate() // Bring to front
-                printfn "DEBUG: Updated existing dialog"
+                // Dialog exists and is visible
+                // Check if it's for the same display - if so, just bring to front
+                // If different display, close existing and open new one
+                let currentTitle = existingDialog.Title
+                let expectedTitle = sprintf "Display Settings - %s" display.Name
+                
+                if currentTitle = expectedTitle then
+                    // Same display, just bring to front
+                    existingDialog.Activate()
+                    printfn "DEBUG: Activated existing dialog for same display"
+                else
+                    // Different display, close existing and open new one
+                    printfn "DEBUG: Closing existing dialog for different display"
+                    existingDialog.Close()
+                    globalDisplaySettingsDialog <- None
+                    onDisplaySettingsClick display
             | None ->
                 // No dialog exists, create new one
                 let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
@@ -299,10 +307,12 @@ module GUI =
                 
                 let onCloseDialog () =
                     printfn "DEBUG: Dialog closed"
-                    displaySettingsDialog <- None
+                    globalDisplaySettingsDialog <- None
+                    globalCurrentDialogDisplay <- None
                 
                 let dialogWindow = UIComponents.createResolutionPickerDialog display onApplyMode onCloseDialog
-                displaySettingsDialog <- Some dialogWindow
+                globalDisplaySettingsDialog <- Some dialogWindow
+                globalCurrentDialogDisplay <- Some display
                 dialogWindow.Show()
                 printfn "DEBUG: Created new dialog window"
         
@@ -395,6 +405,35 @@ module GUI =
         ToolTip.SetTip(themeToggleButton, "Toggle between light and dark theme")
         themeToggleButton.Click.Add(fun _ ->
             Theme.toggleTheme() |> ignore
+            
+            // Refresh current dialog if open by closing and reopening with new theme
+            match globalDisplaySettingsDialog, globalCurrentDialogDisplay with
+            | Some existingDialog, Some display when existingDialog.IsVisible ->
+                printfn "DEBUG: Theme changed - refreshing dialog for display: %s" display.Name
+                
+                // Get new theme colors
+                let newColors = Theme.getCurrentColors()
+                printfn "DEBUG: Current theme is %A, new background color: %A" Theme.currentTheme newColors.Background
+                
+                // Update dialog window background
+                existingDialog.Background <- SolidColorBrush(newColors.Background)
+                
+                // Update the dialog content with new theme colors
+                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
+                    printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
+                    // TODO: Implement actual mode switching in Phase 3
+                
+                let onCloseDialog () =
+                    printfn "DEBUG: Dialog closed"
+                    globalDisplaySettingsDialog <- None
+                    globalCurrentDialogDisplay <- None
+                
+                // Update dialog content directly with new theme
+                let dialogContent = UIComponents.createResolutionPickerDialogContent display onApplyMode onCloseDialog
+                existingDialog.Content <- dialogContent
+                printfn "DEBUG: Dialog window background and content updated with new theme"
+            | _ -> ()
+            
             refreshMainWindowContent ()
         )
         DockPanel.SetDock(themeToggleButton, Dock.Left)
