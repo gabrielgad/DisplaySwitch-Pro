@@ -325,7 +325,7 @@ module UIComponents =
         stackPanel
 
     // Creates just the content for the resolution picker dialog (for updating existing dialogs)
-    let createResolutionPickerDialogContent (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
+    let createResolutionPickerDialogContent (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> DisplayOrientation -> bool -> unit) (onClose: unit -> unit) =
         let colors = Theme.getCurrentColors()
         
         // Modal content
@@ -333,6 +333,7 @@ module UIComponents =
         contentGrid.Margin <- Thickness(20.0)
         contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Header
         contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Current mode info
+        contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Orientation & Primary controls
         contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Star)) // Resolution panels
         contentGrid.RowDefinitions.Add(RowDefinition(Height = GridLength.Auto)) // Buttons
         
@@ -360,6 +361,10 @@ module UIComponents =
         currentModePanel.Margin <- Thickness(0.0, 10.0, 0.0, 10.0)
         Grid.SetRow(currentModePanel, 1)
         
+        let currentModeStack = StackPanel()
+        currentModeStack.Orientation <- Orientation.Vertical
+        currentModeStack.HorizontalAlignment <- HorizontalAlignment.Center
+        
         let currentModeText = TextBlock()
         match display.Capabilities with
         | Some caps ->
@@ -375,15 +380,178 @@ module UIComponents =
         currentModeText.FontSize <- 14.0
         currentModeText.Foreground <- SolidColorBrush(colors.Text)
         currentModeText.HorizontalAlignment <- HorizontalAlignment.Center
-        currentModePanel.Child <- currentModeText
+        currentModeStack.Children.Add(currentModeText)
+        
+        let statusText = TextBlock()
+        let orientationStr = match display.Orientation with
+                             | Landscape -> "Landscape"
+                             | Portrait -> "Portrait" 
+                             | LandscapeFlipped -> "Landscape (Flipped)"
+                             | PortraitFlipped -> "Portrait (Flipped)"
+        let primaryStr = if display.IsPrimary then " • Primary Display" else ""
+        statusText.Text <- sprintf "%s%s" orientationStr primaryStr
+        statusText.FontSize <- 12.0
+        statusText.Foreground <- SolidColorBrush(colors.TextSecondary)
+        statusText.HorizontalAlignment <- HorizontalAlignment.Center
+        statusText.Margin <- Thickness(0.0, 5.0, 0.0, 0.0)
+        currentModeStack.Children.Add(statusText)
+        
+        currentModePanel.Child <- currentModeStack
         
         contentGrid.Children.Add(currentModePanel)
+        
+        // Orientation and Primary controls section
+        let controlsPanel = Border()
+        controlsPanel.Background <- SolidColorBrush(colors.Surface)
+        controlsPanel.CornerRadius <- CornerRadius(6.0)
+        controlsPanel.Padding <- Thickness(15.0, 10.0)
+        controlsPanel.Margin <- Thickness(0.0, 10.0, 0.0, 10.0)
+        Grid.SetRow(controlsPanel, 2)
+        
+        let controlsGrid = Grid()
+        controlsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Star)) // Orientation controls
+        controlsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength(20.0, GridUnitType.Pixel))) // Spacing
+        controlsGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Star)) // Primary controls
+        
+        // Mutable state for orientation and primary tracking
+        let mutable selectedOrientation = display.Orientation
+        let mutable selectedIsPrimary = display.IsPrimary
+        
+        // Left: Orientation controls
+        let orientationSection = StackPanel()
+        orientationSection.Orientation <- Orientation.Vertical
+        Grid.SetColumn(orientationSection, 0)
+        
+        let orientationTitle = TextBlock()
+        orientationTitle.Text <- "🔄 Orientation"
+        orientationTitle.FontSize <- 14.0
+        orientationTitle.FontWeight <- FontWeight.SemiBold
+        orientationTitle.Foreground <- SolidColorBrush(colors.Text)
+        orientationTitle.Margin <- Thickness(0.0, 0.0, 0.0, 8.0)
+        orientationSection.Children.Add(orientationTitle)
+        
+        let orientationButtons = StackPanel()
+        orientationButtons.Orientation <- Orientation.Horizontal
+        orientationButtons.HorizontalAlignment <- HorizontalAlignment.Center
+        orientationButtons.Spacing <- 5.0
+        
+        // Create orientation buttons
+        let orientationOptions = [
+            (Landscape, "📺", "Landscape")
+            (Portrait, "📱", "Portrait")
+            (LandscapeFlipped, "🔄", "Landscape ↻")
+            (PortraitFlipped, "🔃", "Portrait ↻")
+        ]
+        
+        for (orientation, icon, tooltip) in orientationOptions do
+            let orientationButton = Border()
+            orientationButton.Width <- 50.0
+            orientationButton.Height <- 40.0
+            orientationButton.CornerRadius <- CornerRadius(6.0)
+            orientationButton.BorderThickness <- Thickness(1.0)
+            orientationButton.BorderBrush <- SolidColorBrush(colors.Border)
+            orientationButton.Cursor <- new Cursor(StandardCursorType.Hand)
+            
+            let isSelected = orientation = selectedOrientation
+            orientationButton.Background <- if isSelected then 
+                                              SolidColorBrush(colors.Primary) 
+                                            else 
+                                              SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+            
+            let buttonText = TextBlock()
+            buttonText.Text <- icon
+            buttonText.FontSize <- 16.0
+            buttonText.HorizontalAlignment <- HorizontalAlignment.Center
+            buttonText.VerticalAlignment <- VerticalAlignment.Center
+            buttonText.Foreground <- if isSelected then SolidColorBrush(Colors.White) else SolidColorBrush(colors.Text)
+            orientationButton.Child <- buttonText
+            
+            ToolTip.SetTip(orientationButton, tooltip)
+            
+            orientationButton.PointerPressed.Add(fun _ ->
+                selectedOrientation <- orientation
+                
+                // Update all orientation button styles
+                for child in orientationButtons.Children do
+                    if child :? Border then
+                        let border = child :?> Border
+                        border.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+                        if border.Child :? TextBlock then
+                            let textBlock = border.Child :?> TextBlock
+                            textBlock.Foreground <- SolidColorBrush(colors.Text)
+                
+                // Highlight selected orientation
+                orientationButton.Background <- SolidColorBrush(colors.Primary)
+                buttonText.Foreground <- SolidColorBrush(Colors.White)
+                
+                printfn "DEBUG: Selected orientation: %A" orientation
+            )
+            
+            orientationButtons.Children.Add(orientationButton)
+        
+        orientationSection.Children.Add(orientationButtons)
+        controlsGrid.Children.Add(orientationSection)
+        
+        // Right: Primary display toggle
+        let primarySection = StackPanel()
+        primarySection.Orientation <- Orientation.Vertical
+        Grid.SetColumn(primarySection, 2)
+        
+        let primaryTitle = TextBlock()
+        primaryTitle.Text <- "⭐ Primary Display"
+        primaryTitle.FontSize <- 14.0
+        primaryTitle.FontWeight <- FontWeight.SemiBold
+        primaryTitle.Foreground <- SolidColorBrush(colors.Text)
+        primaryTitle.Margin <- Thickness(0.0, 0.0, 0.0, 8.0)
+        primarySection.Children.Add(primaryTitle)
+        
+        let primaryToggle = Border()
+        primaryToggle.Height <- 40.0
+        primaryToggle.CornerRadius <- CornerRadius(6.0)
+        primaryToggle.BorderThickness <- Thickness(1.0)
+        primaryToggle.BorderBrush <- SolidColorBrush(colors.Border)
+        primaryToggle.Cursor <- new Cursor(StandardCursorType.Hand)
+        primaryToggle.HorizontalAlignment <- HorizontalAlignment.Center
+        primaryToggle.Padding <- Thickness(15.0, 0.0)
+        
+        primaryToggle.Background <- if selectedIsPrimary then 
+                                      SolidColorBrush(colors.Secondary) 
+                                    else 
+                                      SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+        
+        let primaryText = TextBlock()
+        primaryText.Text <- if selectedIsPrimary then "✓ Primary" else "Set as Primary"
+        primaryText.FontSize <- 14.0
+        primaryText.HorizontalAlignment <- HorizontalAlignment.Center
+        primaryText.VerticalAlignment <- VerticalAlignment.Center
+        primaryText.Foreground <- if selectedIsPrimary then SolidColorBrush(Colors.White) else SolidColorBrush(colors.Text)
+        primaryToggle.Child <- primaryText
+        
+        primaryToggle.PointerPressed.Add(fun _ ->
+            selectedIsPrimary <- not selectedIsPrimary
+            
+            primaryToggle.Background <- if selectedIsPrimary then 
+                                          SolidColorBrush(colors.Secondary) 
+                                        else 
+                                          SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+            
+            primaryText.Text <- if selectedIsPrimary then "✓ Primary" else "Set as Primary"
+            primaryText.Foreground <- if selectedIsPrimary then SolidColorBrush(Colors.White) else SolidColorBrush(colors.Text)
+            
+            printfn "DEBUG: Primary display: %b" selectedIsPrimary
+        )
+        
+        primarySection.Children.Add(primaryToggle)
+        controlsGrid.Children.Add(primarySection)
+        
+        controlsPanel.Child <- controlsGrid
+        contentGrid.Children.Add(controlsPanel)
         
         // Scrollable content area for resolution panels
         let contentScrollViewer = ScrollViewer()
         contentScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
         contentScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
-        Grid.SetRow(contentScrollViewer, 2)
+        Grid.SetRow(contentScrollViewer, 3)
         
         // Two-panel layout: resolutions (left) + refresh rates (right)
         let panelsGrid = Grid()
@@ -691,7 +859,7 @@ module UIComponents =
         buttonPanel.Orientation <- Orientation.Horizontal
         buttonPanel.HorizontalAlignment <- HorizontalAlignment.Right
         buttonPanel.Margin <- Thickness(0.0, 10.0, 0.0, 0.0)
-        Grid.SetRow(buttonPanel, 3)
+        Grid.SetRow(buttonPanel, 4)
         
         let cancelButton = Button()
         cancelButton.Content <- "Cancel"
@@ -769,7 +937,18 @@ module UIComponents =
                 match selectedResolution, selectedRefreshRate with
                 | Some (width, height), Some refreshRate ->
                     let mode = { Width = width; Height = height; RefreshRate = refreshRate; BitsPerPixel = 32 }
-                    onApply display.Id mode
+                    
+                    // Create updated display info with new settings
+                    let updatedDisplay = { 
+                        display with 
+                            Orientation = selectedOrientation
+                            IsPrimary = selectedIsPrimary
+                    }
+                    
+                    printfn "DEBUG: Applying changes - Resolution: %dx%d@%dHz, Orientation: %A, Primary: %b" 
+                            width height refreshRate selectedOrientation selectedIsPrimary
+                    
+                    onApply display.Id mode selectedOrientation selectedIsPrimary
                     onClose()
                 | _ -> ()
         )
@@ -780,7 +959,7 @@ module UIComponents =
         contentGrid
 
     // Resolution picker dialog window for selecting display modes
-    let createResolutionPickerDialog (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> unit) (onClose: unit -> unit) =
+    let createResolutionPickerDialog (display: DisplayInfo) (onApply: DisplayId -> DisplayMode -> DisplayOrientation -> bool -> unit) (onClose: unit -> unit) =
         let colors = Theme.getCurrentColors()
         
         // Create dialog window

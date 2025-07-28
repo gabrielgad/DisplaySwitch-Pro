@@ -103,6 +103,43 @@ module WindowsAPI =
     [<DllImport("user32.dll", CharSet = CharSet.Auto)>]
     extern bool EnumDisplaySettings(string lpszDeviceName, int iModeNum, DEVMODE& lpDevMode)
 
+    [<DllImport("user32.dll", CharSet = CharSet.Auto)>]
+    extern int ChangeDisplaySettings(DEVMODE& lpDevMode, uint32 dwFlags)
+
+    [<DllImport("user32.dll", CharSet = CharSet.Auto)>]
+    extern int ChangeDisplaySettingsEx(string lpszDeviceName, DEVMODE& lpDevMode, IntPtr hwnd, uint32 dwflags, IntPtr lParam)
+
+    // ChangeDisplaySettings flags
+    module CDS =
+        let CDS_UPDATEREGISTRY = 0x00000001u
+        let CDS_TEST = 0x00000002u
+        let CDS_FULLSCREEN = 0x00000004u
+        let CDS_GLOBAL = 0x00000008u
+        let CDS_SET_PRIMARY = 0x00000010u
+        let CDS_VIDEOPARAMETERS = 0x00000020u
+        let CDS_ENABLE_UNSAFE_MODES = 0x00000100u
+        let CDS_DISABLE_UNSAFE_MODES = 0x00000200u
+        let CDS_RESET = 0x40000000u
+        let CDS_NORESET = 0x10000000u
+
+    // ChangeDisplaySettings return values
+    module DISP =
+        let DISP_CHANGE_SUCCESSFUL = 0
+        let DISP_CHANGE_RESTART = 1
+        let DISP_CHANGE_FAILED = -1
+        let DISP_CHANGE_BADMODE = -2
+        let DISP_CHANGE_NOTUPDATED = -3
+        let DISP_CHANGE_BADFLAGS = -4
+        let DISP_CHANGE_BADPARAM = -5
+        let DISP_CHANGE_BADDUALVIEW = -6
+
+    // Display orientation values for DEVMODE.dmDisplayOrientation
+    module DMDO =
+        let DMDO_DEFAULT = 0u
+        let DMDO_90 = 1u
+        let DMDO_180 = 2u
+        let DMDO_270 = 3u
+
 // Windows Display Detection System following ECS architecture
 module WindowsDisplaySystem =
     
@@ -387,3 +424,103 @@ module WindowsDisplaySystem =
         | ex -> 
             printfn "Windows display detection failed: %s" ex.Message
             []
+
+    // Convert DisplayOrientation to Windows API orientation value
+    let private orientationToWindows (orientation: DisplayOrientation) =
+        match orientation with
+        | Landscape -> DMDO.DMDO_DEFAULT
+        | Portrait -> DMDO.DMDO_90
+        | LandscapeFlipped -> DMDO.DMDO_180
+        | PortraitFlipped -> DMDO.DMDO_270
+
+    // Apply display mode changes (resolution, refresh rate, orientation)
+    let applyDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) =
+        try
+            printfn "Applying display mode to %s: %dx%d @ %dHz, orientation: %A" 
+                    displayId mode.Width mode.Height mode.RefreshRate orientation
+
+            // Get current display settings to use as base
+            let mutable devMode = DEVMODE()
+            devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+            
+            let getCurrentResult = EnumDisplaySettings(displayId, -1, &devMode)
+            if not getCurrentResult then
+                Error (sprintf "Could not get current display settings for %s" displayId)
+            else
+                // Update the settings we want to change
+                devMode.dmPelsWidth <- uint32 mode.Width
+                devMode.dmPelsHeight <- uint32 mode.Height  
+                devMode.dmDisplayFrequency <- uint32 mode.RefreshRate
+                devMode.dmBitsPerPel <- uint32 mode.BitsPerPixel
+                devMode.dmDisplayOrientation <- orientationToWindows orientation
+                
+                // Set fields that indicate which settings to change
+                devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00400000u ||| 0x00080000u ||| 0x00000080u
+                // DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL | DM_DISPLAYORIENTATION
+
+                // Test the change first
+                let testResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_TEST, IntPtr.Zero)
+                if testResult <> DISP.DISP_CHANGE_SUCCESSFUL then
+                    let errorMsg = match testResult with
+                                   | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
+                                   | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed the mode change"
+                                   | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                   | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
+                                   | _ -> sprintf "Unknown error code: %d" testResult
+                    Error (sprintf "Display mode test failed for %s: %s" displayId errorMsg)
+                else
+                    // Apply the change
+                    let applyResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                    if applyResult = DISP.DISP_CHANGE_SUCCESSFUL then
+                        printfn "Successfully applied display mode to %s" displayId
+                        Ok ()
+                    elif applyResult = DISP.DISP_CHANGE_RESTART then
+                        printfn "Display mode applied to %s, restart required" displayId
+                        Ok () // Still consider success, just inform user
+                    else
+                        let errorMsg = match applyResult with
+                                       | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
+                                       | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed the mode change"
+                                       | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                       | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
+                                       | _ -> sprintf "Unknown error code: %d" applyResult
+                        Error (sprintf "Failed to apply display mode to %s: %s" displayId errorMsg)
+        with
+        | ex ->
+            Error (sprintf "Exception applying display mode to %s: %s" displayId ex.Message)
+
+    // Set display as primary
+    let setPrimaryDisplay (displayId: DisplayId) =
+        try
+            printfn "Setting %s as primary display" displayId
+
+            // Get current display settings
+            let mutable devMode = DEVMODE()
+            devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+            
+            let getCurrentResult = EnumDisplaySettings(displayId, -1, &devMode)
+            if not getCurrentResult then
+                Error (sprintf "Could not get current display settings for %s" displayId)
+            else
+                // Set position to 0,0 and use SET_PRIMARY flag
+                devMode.dmPositionX <- 0
+                devMode.dmPositionY <- 0
+                devMode.dmFields <- devMode.dmFields ||| 0x00000020u // DM_POSITION
+
+                let result = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, 
+                                                     CDS.CDS_SET_PRIMARY ||| CDS.CDS_UPDATEREGISTRY ||| CDS.CDS_NORESET, 
+                                                     IntPtr.Zero)
+                
+                if result = DISP.DISP_CHANGE_SUCCESSFUL then
+                    printfn "Successfully set %s as primary display" displayId
+                    Ok ()
+                else
+                    let errorMsg = match result with
+                                   | x when x = DISP.DISP_CHANGE_FAILED -> "Failed to set as primary"
+                                   | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                   | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
+                                   | _ -> sprintf "Unknown error code: %d" result
+                    Error (sprintf "Failed to set %s as primary: %s" displayId errorMsg)
+        with
+        | ex ->
+            Error (sprintf "Exception setting %s as primary: %s" displayId ex.Message)

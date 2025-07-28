@@ -261,9 +261,26 @@ module GUI =
             dialog.Title <- sprintf "Display Settings - %s" display.Name
             
             // Create modal handlers
-            let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
-                printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
-                // TODO: Implement actual mode switching in Phase 3
+            let onApplyMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) (isPrimary: bool) =
+                printfn "DEBUG: Applying mode %dx%d @ %dHz to display %s, orientation: %A, primary: %b" 
+                        mode.Width mode.Height mode.RefreshRate displayId orientation isPrimary
+                
+                // Apply display mode (resolution, refresh rate, orientation)
+                match WindowsDisplaySystem.applyDisplayMode displayId mode orientation with
+                | Ok () -> 
+                    printfn "Successfully applied display mode to %s" displayId
+                    
+                    // If setting as primary, apply that change too
+                    if isPrimary then
+                        match WindowsDisplaySystem.setPrimaryDisplay displayId with
+                        | Ok () -> printfn "Successfully set %s as primary display" displayId
+                        | Error err -> printfn "Failed to set %s as primary: %s" displayId err
+                    
+                    // Refresh the main window to show updated display info
+                    refreshMainWindowContent()
+                    
+                | Error err -> 
+                    printfn "Failed to apply display mode to %s: %s" displayId err
             
             let onCloseDialog () =
                 printfn "DEBUG: Dialog closed"
@@ -301,9 +318,26 @@ module GUI =
                     onDisplaySettingsClick display
             | None ->
                 // No dialog exists, create new one
-                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
-                    printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
-                    // TODO: Implement actual mode switching in Phase 3
+                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) (isPrimary: bool) =
+                    printfn "DEBUG: Applying mode %dx%d @ %dHz to display %s, orientation: %A, primary: %b" 
+                            mode.Width mode.Height mode.RefreshRate displayId orientation isPrimary
+                    
+                    // Apply display mode (resolution, refresh rate, orientation)
+                    match WindowsDisplaySystem.applyDisplayMode displayId mode orientation with
+                    | Ok () -> 
+                        printfn "Successfully applied display mode to %s" displayId
+                        
+                        // If setting as primary, apply that change too
+                        if isPrimary then
+                            match WindowsDisplaySystem.setPrimaryDisplay displayId with
+                            | Ok () -> printfn "Successfully set %s as primary display" displayId
+                            | Error err -> printfn "Failed to set %s as primary: %s" displayId err
+                        
+                        // Refresh the main window to show updated display info
+                        refreshMainWindowContent()
+                        
+                    | Error err -> 
+                        printfn "Failed to apply display mode to %s: %s" displayId err
                 
                 let onCloseDialog () =
                     printfn "DEBUG: Dialog closed"
@@ -419,9 +453,26 @@ module GUI =
                 existingDialog.Background <- SolidColorBrush(newColors.Background)
                 
                 // Update the dialog content with new theme colors
-                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) =
-                    printfn "DEBUG: Would apply mode %dx%d @ %dHz to display %s" mode.Width mode.Height mode.RefreshRate displayId
-                    // TODO: Implement actual mode switching in Phase 3
+                let onApplyMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) (isPrimary: bool) =
+                    printfn "DEBUG: Applying mode %dx%d @ %dHz to display %s, orientation: %A, primary: %b" 
+                            mode.Width mode.Height mode.RefreshRate displayId orientation isPrimary
+                    
+                    // Apply display mode (resolution, refresh rate, orientation)
+                    match WindowsDisplaySystem.applyDisplayMode displayId mode orientation with
+                    | Ok () -> 
+                        printfn "Successfully applied display mode to %s" displayId
+                        
+                        // If setting as primary, apply that change too
+                        if isPrimary then
+                            match WindowsDisplaySystem.setPrimaryDisplay displayId with
+                            | Ok () -> printfn "Successfully set %s as primary display" displayId
+                            | Error err -> printfn "Failed to set %s as primary: %s" displayId err
+                        
+                        // Refresh the main window to show updated display info
+                        refreshMainWindowContent()
+                        
+                    | Error err -> 
+                        printfn "Failed to apply display mode to %s: %s" displayId err
                 
                 let onCloseDialog () =
                     printfn "DEBUG: Dialog closed"

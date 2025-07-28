@@ -54,6 +54,8 @@ dotnet test --filter "FullyQualifiedName~snappingTests"
 - `Components.fs` - ECS component system
 - `Systems.fs` - Business logic systems (PresetSystem, DisplayDetectionSystem)
 - `PlatformAdapter.fs` - Platform-specific display detection
+- `WindowsDisplaySystem.fs` - Windows API integration for display management
+- `UIComponents.fs` - Reusable UI components and display settings dialog
 - `GUI.fs` - Avalonia UI components and display arrangement canvas
 - `Tests.fs` - Unit tests using Expecto framework
 - `Program.fs` - Application entry point
@@ -66,6 +68,24 @@ dotnet test --filter "FullyQualifiedName~snappingTests"
 - **Collision Prevention**: Displays cannot overlap - system finds nearest valid position
 - **Configurable Thresholds**: Snap distance can be adjusted via UI slider (5-30px range)
 - **Grid Reference**: Enhanced grid lines provide visual alignment guides
+
+### Display Settings Management
+- **Resolution & Refresh Rate**: Complete UI for selecting supported display modes
+- **Orientation Controls**: 4-button interface for display rotation (Landscape, Portrait, Flipped variants)
+- **Primary Display Toggle**: Set any display as the primary display
+- **Real-time Preview**: Shows current settings and selected changes before applying
+- **Theme-aware Styling**: All controls adapt to light/dark theme with proper visibility
+
+### Windows API Integration
+- **Display Mode Detection**: Full enumeration of supported resolutions and refresh rates
+- **Display Configuration**: Complete Windows API calls for changing display settings
+- **Error Handling**: Comprehensive error reporting for unsupported modes or driver issues
+
+**⚠️ KNOWN ISSUES:**
+- Windows API calls (`ChangeDisplaySettingsEx`) may not work properly in WSL environment
+- Display mode changes require proper graphics driver support
+- Primary display changes may need elevated privileges on some systems
+- Testing should be done on native Windows environment for full functionality
 
 ### Test Coverage
 - Display system basic operations
