@@ -1149,6 +1149,23 @@ module UIComponents =
         saveButton.Click.Add(fun _ -> onPresetClick "SAVE_NEW")
         mainPanel.Children.Add(saveButton)
         
+        // Add keyboard shortcuts info
+        let shortcutsInfo = Border()
+        shortcutsInfo.Background <- SolidColorBrush(Color.FromArgb(30uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
+        shortcutsInfo.BorderBrush <- SolidColorBrush(colors.Border)
+        shortcutsInfo.BorderThickness <- Thickness(1.0)
+        shortcutsInfo.CornerRadius <- CornerRadius(4.0)
+        shortcutsInfo.Padding <- Thickness(8.0, 6.0)
+        shortcutsInfo.Margin <- Thickness(0.0, 0.0, 0.0, 10.0)
+        
+        let shortcutsText = TextBlock()
+        shortcutsText.Text <- "⌨️ Use Ctrl+Shift+1-9 to quickly switch presets"
+        shortcutsText.FontSize <- 11.0
+        shortcutsText.Foreground <- SolidColorBrush(colors.Text)
+        shortcutsText.TextWrapping <- TextWrapping.Wrap
+        shortcutsInfo.Child <- shortcutsText
+        mainPanel.Children.Add(shortcutsInfo)
+        
         let listHeader = TextBlock()
         listHeader.Text <- "Saved Layouts:"
         listHeader.FontWeight <- FontWeight.Medium
@@ -1174,7 +1191,7 @@ module UIComponents =
             emptyMessage.Margin <- Thickness(0.0, 20.0, 0.0, 0.0)
             presetList.Children.Add(emptyMessage)
         else
-            for preset in presets do
+            for i, preset in presets |> List.mapi (fun i p -> (i, p)) do
                 let presetCard = Border()
                 presetCard.Background <- SolidColorBrush(if Theme.currentTheme = Theme.Light then Color.FromRgb(249uy, 250uy, 251uy) else colors.Surface) :> IBrush
                 presetCard.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
@@ -1188,7 +1205,8 @@ module UIComponents =
                 cardGrid.ColumnDefinitions.Add(ColumnDefinition(Width = GridLength.Auto))
                 
                 let presetButton = Button()
-                presetButton.Content <- preset
+                let shortcutText = if i < 9 then sprintf "[Ctrl+Shift+%d] %s" (i + 1) preset else preset
+                presetButton.Content <- shortcutText
                 presetButton.Background <- Brushes.Transparent
                 presetButton.BorderThickness <- Thickness(0.0)
                 presetButton.HorizontalAlignment <- HorizontalAlignment.Stretch
