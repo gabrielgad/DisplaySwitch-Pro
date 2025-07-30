@@ -366,17 +366,19 @@ module UIComponents =
         currentModeStack.HorizontalAlignment <- HorizontalAlignment.Center
         
         let currentModeText = TextBlock()
-        match display.Capabilities with
-        | Some caps ->
+        // Create a mutable reference to track current mode for updates
+        let mutable currentDisplayMode = 
+            match display.Capabilities with
+            | Some caps -> caps.CurrentMode
+            | None -> { Width = display.Resolution.Width; Height = display.Resolution.Height; RefreshRate = display.Resolution.RefreshRate; BitsPerPixel = 32 }
+        
+        let updateCurrentModeDisplay () =
             currentModeText.Text <- sprintf "Current: %dx%d @ %dHz" 
-                caps.CurrentMode.Width 
-                caps.CurrentMode.Height 
-                caps.CurrentMode.RefreshRate
-        | None ->
-            currentModeText.Text <- sprintf "Current: %dx%d @ %dHz" 
-                display.Resolution.Width 
-                display.Resolution.Height 
-                display.Resolution.RefreshRate
+                currentDisplayMode.Width 
+                currentDisplayMode.Height 
+                currentDisplayMode.RefreshRate
+        
+        updateCurrentModeDisplay()
         currentModeText.FontSize <- 14.0
         currentModeText.Foreground <- SolidColorBrush(colors.Text)
         currentModeText.HorizontalAlignment <- HorizontalAlignment.Center
@@ -573,10 +575,13 @@ module UIComponents =
         
         let updateButtonStates () =
             let isSelectionMade = selectedResolution.IsSome && selectedRefreshRate.IsSome
+            printfn "[DEBUG UIComponents] updateButtonStates called - Resolution: %A, RefreshRate: %A, SelectionMade: %b" 
+                    selectedResolution selectedRefreshRate isSelectionMade
             
             match testButton, applyButton, testText, applyText with
             | Some tb, Some ab, Some tt, Some at ->
                 if isSelectionMade then
+                    printfn "[DEBUG UIComponents] Enabling Apply and Test buttons"
                     tb.IsEnabled <- true
                     tb.Opacity <- 1.0
                     tb.Background <- SolidColorBrush(colors.Secondary)
@@ -587,6 +592,7 @@ module UIComponents =
                     ab.Background <- SolidColorBrush(colors.Primary)
                     at.Foreground <- SolidColorBrush(Colors.White)
                 else
+                    printfn "[DEBUG UIComponents] Disabling Apply and Test buttons"
                     tb.IsEnabled <- false
                     tb.Opacity <- 0.5
                     tb.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
@@ -672,27 +678,47 @@ module UIComponents =
                 )
                 
                 resolutionButton.PointerExited.Add(fun _ ->
-                    resolutionButton.Background <- normalBg
-                    resolutionText.Foreground <- normalFg  // Update TextBlock foreground instead of Border
+                    // Check if this resolution is currently selected - if so, keep selection styling
+                    let isSelected = selectedResolution = Some (width, height)
+                    if isSelected then
+                        // Keep selected styling
+                        resolutionButton.Background <- SolidColorBrush(colors.Primary)
+                        resolutionText.Foreground <- SolidColorBrush(colors.Surface)
+                    else
+                        // Return to normal styling
+                        resolutionButton.Background <- normalBg
+                        resolutionText.Foreground <- normalFg  // Update TextBlock foreground instead of Border
                 )
                 
-                // Highlight current resolution
-                if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height then
-                    resolutionButton.Background <- SolidColorBrush(colors.Primary)
-                    resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                // Only set initial selection to current resolution if none is selected yet
+                // Don't do any visual highlighting here - let the click handler control all highlighting
+                let isCurrentResolution = width = caps.CurrentMode.Width && height = caps.CurrentMode.Height
+                if isCurrentResolution && selectedResolution.IsNone then
                     selectedResolution <- Some (width, height)
                     updateButtonStates()
+                    printfn "[DEBUG UIComponents] Initial resolution selection set to current: %dx%d" width height
                 
                 // Handle mouse click on the border
                 resolutionButton.PointerPressed.Add(fun _ ->
+                    printfn "[DEBUG UIComponents] Resolution selected: %dx%d" width height
                     // Update selection
+                    let previousResolution = selectedResolution
                     selectedResolution <- Some (width, height)
-                    selectedRefreshRate <- None
                     
-                    // Reset all resolution button styles
+                    // Only clear refresh rate if we're selecting a different resolution
+                    if previousResolution <> Some (width, height) then
+                        selectedRefreshRate <- None
+                        printfn "[DEBUG UIComponents] Different resolution selected - will auto-select refresh rate"
+                    else
+                        printfn "[DEBUG UIComponents] Same resolution re-selected - keeping refresh rate: %A" selectedRefreshRate
+                    
+                    printfn "[DEBUG UIComponents] selectedResolution set to: %A" selectedResolution
+                    
+                    // Reset ALL resolution button styles to normal (user has made a selection)
                     for child in resolutionList.Children do
                         if child :? Border then
                             let border = child :?> Border
+                            // Reset to normal style for all buttons
                             border.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Primary.R, colors.Primary.G, colors.Primary.B))
                             if border.Child :? TextBlock then
                                 let textBlock = border.Child :?> TextBlock
@@ -701,9 +727,13 @@ module UIComponents =
                     // Highlight selected resolution
                     resolutionButton.Background <- SolidColorBrush(colors.Primary)
                     resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
+                    
+                    printfn "[DEBUG UIComponents] Highlighting selected resolution button: %dx%d" width height
                     updateButtonStates()
                     
                     // Update refresh rate panel
+                    printfn "[DEBUG UIComponents] Updating refresh rate panel for resolution %dx%d" width height
+                    printfn "[DEBUG UIComponents] Refresh rates available for this resolution: %A" refreshRates
                     match refreshRatePanel with
                     | Some panel -> 
                         panel.Children.Clear()
@@ -727,6 +757,7 @@ module UIComponents =
                         
                         // Sort refresh rates from highest to lowest
                         let sortedRefreshRates = refreshRates |> List.sortByDescending id
+                        printfn "[DEBUG UIComponents] Available refresh rates for %dx%d: %A" width height sortedRefreshRates
                         
                         for refreshRate in sortedRefreshRates do
                             // Use Border with TextBlock instead of Button to avoid default hover styling
@@ -777,16 +808,42 @@ module UIComponents =
                                     refreshText.Foreground <- SolidColorBrush(colors.Text)
                             )
                             
-                            // Highlight current refresh rate if this resolution matches current
-                            if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height && refreshRate = caps.CurrentMode.RefreshRate then
+                            // Auto-select refresh rate logic - only for the currently selected resolution
+                            let shouldAutoSelect = 
+                                match selectedResolution with
+                                | Some (selWidth, selHeight) when selWidth = width && selHeight = height ->
+                                    printfn "[DEBUG UIComponents] Checking auto-selection for %dx%d, current refresh rate: %d" width height refreshRate
+                                    printfn "[DEBUG UIComponents] Current display mode: %dx%d @ %dHz" caps.CurrentMode.Width caps.CurrentMode.Height caps.CurrentMode.RefreshRate
+                                    printfn "[DEBUG UIComponents] Available rates for this resolution: %A" sortedRefreshRates
+                                    
+                                    // This is the selected resolution - determine which refresh rate to auto-select
+                                    if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height then
+                                        // For current resolution, select the current refresh rate
+                                        let shouldSelect = refreshRate = caps.CurrentMode.RefreshRate
+                                        printfn "[DEBUG UIComponents] Current resolution - should select %dHz: %b" refreshRate shouldSelect
+                                        shouldSelect
+                                    else
+                                        // For other resolutions, select the highest refresh rate available for THIS resolution
+                                        let highestRate = sortedRefreshRates |> List.head
+                                        let shouldSelect = refreshRate = highestRate
+                                        printfn "[DEBUG UIComponents] Other resolution - highest available: %dHz, should select %dHz: %b" highestRate refreshRate shouldSelect
+                                        shouldSelect
+                                | _ -> 
+                                    false // Don't auto-select for non-selected resolutions
+                            
+                            // Highlight and select the appropriate refresh rate
+                            if shouldAutoSelect then
                                 refreshButton.Background <- SolidColorBrush(colors.Secondary)
                                 refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
                                 selectedRefreshRate <- Some refreshRate
+                                printfn "[DEBUG UIComponents] Auto-selected refresh rate: %dHz for resolution %dx%d" refreshRate width height
                                 updateButtonStates()
                             
                             // Handle mouse click on the border
                             refreshButton.PointerPressed.Add(fun _ ->
+                                printfn "[DEBUG UIComponents] Refresh rate selected: %dHz" refreshRate
                                 selectedRefreshRate <- Some refreshRate
+                                printfn "[DEBUG UIComponents] selectedRefreshRate set to: %A" selectedRefreshRate
                                 
                                 // Reset all refresh rate button styles
                                 for child in refreshList.Children do
@@ -822,6 +879,23 @@ module UIComponents =
             resolutionList.Children.Add(noDataText)
         
         resolutionScrollViewer.Content <- resolutionList
+        
+        // Apply initial highlighting to the selected resolution (should be current resolution)
+        match selectedResolution with
+        | Some (selWidth, selHeight) ->
+            for child in resolutionList.Children do
+                if child :? Border then
+                    let border = child :?> Border
+                    if border.Child :? TextBlock then
+                        let textBlock = border.Child :?> TextBlock
+                        let expectedText = sprintf "%d × %d" selWidth selHeight
+                        if textBlock.Text = expectedText then
+                            border.Background <- SolidColorBrush(colors.Primary)
+                            textBlock.Foreground <- SolidColorBrush(colors.Surface)
+                            printfn "[DEBUG UIComponents] Applied initial highlighting to resolution: %dx%d" selWidth selHeight
+        | None -> 
+            printfn "[DEBUG UIComponents] No initial resolution to highlight"
+        
         resolutionContent.Children.Add(resolutionScrollViewer)
         resolutionPanel.Child <- resolutionContent
         panelsGrid.Children.Add(resolutionPanel)
@@ -927,12 +1001,40 @@ module UIComponents =
                 match selectedResolution, selectedRefreshRate with
                 | Some (width, height), Some refreshRate ->
                     let mode = { Width = width; Height = height; RefreshRate = refreshRate; BitsPerPixel = 32 }
-                    printfn "Test mode: %dx%d @ %dHz for 15 seconds" width height refreshRate
-                    // TODO: Implement 15-second test functionality
+                    printfn "[DEBUG UIComponents] Starting 15-second test of %dx%d @ %dHz" width height refreshRate
+                    
+                    // Disable the test button during testing to prevent multiple tests
+                    testButtonElement.IsEnabled <- false
+                    testButtonElement.Opacity <- 0.5
+                    testTextElement.Text <- "Testing..."
+                    testTextElement.Foreground <- SolidColorBrush(colors.TextSecondary)
+                    
+                    // Start the async test
+                    let testComplete (result: Result<string, string>) =
+                        // Re-enable the test button
+                        testButtonElement.IsEnabled <- true
+                        testButtonElement.Opacity <- 1.0
+                        testTextElement.Text <- "Test 15s"
+                        testTextElement.Foreground <- SolidColorBrush(Colors.White)
+                        testButtonElement.Background <- SolidColorBrush(colors.Secondary)
+                        
+                        match result with
+                        | Ok msg ->
+                            printfn "[DEBUG UIComponents] Test completed successfully: %s" msg
+                        | Error err ->
+                            printfn "[DEBUG UIComponents] Test failed: %s" err
+                    
+                    // Execute the test asynchronously
+                    Async.Start(WindowsDisplaySystem.testDisplayMode display.Id mode selectedOrientation testComplete)
                 | _ -> ()
         )
         
         applyButtonElement.PointerPressed.Add(fun _ ->
+            printfn "[DEBUG UIComponents] Apply button clicked!"
+            printfn "[DEBUG UIComponents] Button enabled: %b" applyButtonElement.IsEnabled
+            printfn "[DEBUG UIComponents] Selected resolution: %A" selectedResolution
+            printfn "[DEBUG UIComponents] Selected refresh rate: %A" selectedRefreshRate
+            
             if applyButtonElement.IsEnabled && selectedResolution.IsSome && selectedRefreshRate.IsSome then
                 match selectedResolution, selectedRefreshRate with
                 | Some (width, height), Some refreshRate ->
@@ -945,12 +1047,30 @@ module UIComponents =
                             IsPrimary = selectedIsPrimary
                     }
                     
-                    printfn "DEBUG: Applying changes - Resolution: %dx%d@%dHz, Orientation: %A, Primary: %b" 
-                            width height refreshRate selectedOrientation selectedIsPrimary
+                    printfn "[DEBUG UIComponents] ===== APPLYING DISPLAY SETTINGS ====="
+                    printfn "[DEBUG UIComponents] Display ID: %s" display.Id
+                    printfn "[DEBUG UIComponents] Resolution: %dx%d @ %dHz" width height refreshRate
+                    printfn "[DEBUG UIComponents] Orientation: %A" selectedOrientation
+                    printfn "[DEBUG UIComponents] Set as Primary: %b" selectedIsPrimary
+                    printfn "[DEBUG UIComponents] Current Primary: %b" display.IsPrimary
+                    printfn "[DEBUG UIComponents] Mode details: { Width=%d; Height=%d; RefreshRate=%d; BitsPerPixel=%d }" 
+                            mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
                     
+                    printfn "[DEBUG UIComponents] Calling onApply callback..."
                     onApply display.Id mode selectedOrientation selectedIsPrimary
-                    onClose()
-                | _ -> ()
+                    printfn "[DEBUG UIComponents] onApply callback completed"
+                    
+                    // Update the current mode display to reflect the change
+                    currentDisplayMode <- mode
+                    updateCurrentModeDisplay()
+                    printfn "[DEBUG UIComponents] Updated current mode display to: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate
+                    
+                    // Don't close the dialog - let user make more changes or close manually
+                    printfn "[DEBUG UIComponents] Keeping dialog open for additional changes"
+                | _ -> 
+                    printfn "[DEBUG UIComponents] ERROR: Resolution or refresh rate not properly selected!"
+            else
+                printfn "[DEBUG UIComponents] ERROR: Button not enabled or selections missing!"
         )
         
         contentGrid.Children.Add(buttonPanel)

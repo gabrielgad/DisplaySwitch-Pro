@@ -253,6 +253,41 @@ module WindowsDisplaySystem =
             ((w, h), modelist |> List.map (fun m -> m.RefreshRate) |> List.distinct |> List.sort))
         |> Map.ofList
 
+    // Get exact DEVMODE structure for a specific mode
+    let private getExactDevModeForMode (deviceName: string) (targetMode: DisplayMode) =
+        try
+            let mutable modeIndex = 0
+            let mutable continueEnum = true
+            let mutable foundMode = None
+            
+            while continueEnum && foundMode.IsNone do
+                let mutable devMode = DEVMODE()
+                devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                
+                let result = EnumDisplaySettings(deviceName, modeIndex, &devMode)
+                if result then
+                    let mode = {
+                        Width = int devMode.dmPelsWidth
+                        Height = int devMode.dmPelsHeight
+                        RefreshRate = int devMode.dmDisplayFrequency
+                        BitsPerPixel = int devMode.dmBitsPerPel
+                    }
+                    
+                    if mode.Width = targetMode.Width && 
+                       mode.Height = targetMode.Height && 
+                       mode.RefreshRate = targetMode.RefreshRate then
+                        foundMode <- Some devMode
+                    
+                    modeIndex <- modeIndex + 1
+                else
+                    continueEnum <- false
+            
+            foundMode
+        with
+        | ex ->
+            printfn "[DEBUG] Error finding exact DEVMODE: %s" ex.Message
+            None
+
     // Get all supported display modes for a display device
     let internal getAllDisplayModes (deviceName: string) =
         try
@@ -275,13 +310,21 @@ module WindowsDisplaySystem =
                         BitsPerPixel = int devMode.dmBitsPerPel
                     }
                     
+                    if modeIndex < 10 then // Log first 10 modes for debugging
+                        printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
+                                modeIndex mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
+                    
                     // Only add valid modes (basic validation)
                     if mode.Width > 0 && mode.Height > 0 && mode.RefreshRate > 0 then
                         modes <- mode :: modes
+                    else
+                        if modeIndex < 10 then
+                            printfn "[DEBUG] Skipping invalid mode at index %d" modeIndex
                         
                     modeIndex <- modeIndex + 1
                 else
                     continueEnum <- false
+                    printfn "[DEBUG] EnumDisplaySettings stopped at index %d" modeIndex
             
             let uniqueModes = modes |> List.rev |> List.distinct
             printfn "Found %d unique display modes for %s" uniqueModes.Length deviceName
@@ -433,20 +476,46 @@ module WindowsDisplaySystem =
         | LandscapeFlipped -> DMDO.DMDO_180
         | PortraitFlipped -> DMDO.DMDO_270
 
+    // Convert Windows API orientation value to DisplayOrientation
+    let private windowsToOrientation (windowsOrientation: uint32) =
+        match windowsOrientation with
+        | x when x = DMDO.DMDO_DEFAULT -> Landscape
+        | x when x = DMDO.DMDO_90 -> Portrait
+        | x when x = DMDO.DMDO_180 -> LandscapeFlipped
+        | x when x = DMDO.DMDO_270 -> PortraitFlipped
+        | _ -> Landscape // Default fallback
+
     // Apply display mode changes (resolution, refresh rate, orientation)
     let applyDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) =
         try
-            printfn "Applying display mode to %s: %dx%d @ %dHz, orientation: %A" 
-                    displayId mode.Width mode.Height mode.RefreshRate orientation
+            printfn "[DEBUG] ========== Starting applyDisplayMode =========="
+            printfn "[DEBUG] Display ID: %s" displayId
+            printfn "[DEBUG] Target Mode: %dx%d @ %dHz (BitsPerPixel: %d)" mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
+            printfn "[DEBUG] Target Orientation: %A (Windows value: %u)" orientation (orientationToWindows orientation)
 
             // Get current display settings to use as base
             let mutable devMode = DEVMODE()
             devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+            printfn "[DEBUG] DEVMODE structure size: %d bytes" devMode.dmSize
             
             let getCurrentResult = EnumDisplaySettings(displayId, -1, &devMode)
             if not getCurrentResult then
+                printfn "[DEBUG] ERROR: EnumDisplaySettings failed for %s" displayId
                 Error (sprintf "Could not get current display settings for %s" displayId)
             else
+                printfn "[DEBUG] Current display settings retrieved successfully:"
+                printfn "[DEBUG]   Current Resolution: %ux%u @ %uHz" devMode.dmPelsWidth devMode.dmPelsHeight devMode.dmDisplayFrequency
+                printfn "[DEBUG]   Current BitsPerPixel: %u" devMode.dmBitsPerPel
+                printfn "[DEBUG]   Current Orientation: %u" devMode.dmDisplayOrientation
+                printfn "[DEBUG]   Current Position: (%d, %d)" devMode.dmPositionX devMode.dmPositionY
+                printfn "[DEBUG]   Current dmFields: 0x%08X" devMode.dmFields
+                
+                // Store original values for comparison
+                let originalWidth = devMode.dmPelsWidth
+                let originalHeight = devMode.dmPelsHeight
+                let originalFreq = devMode.dmDisplayFrequency
+                let originalOrientation = devMode.dmDisplayOrientation
+                
                 // Update the settings we want to change
                 devMode.dmPelsWidth <- uint32 mode.Width
                 devMode.dmPelsHeight <- uint32 mode.Height  
@@ -454,39 +523,134 @@ module WindowsDisplaySystem =
                 devMode.dmBitsPerPel <- uint32 mode.BitsPerPixel
                 devMode.dmDisplayOrientation <- orientationToWindows orientation
                 
-                // Set fields that indicate which settings to change
-                devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00400000u ||| 0x00080000u ||| 0x00000080u
-                // DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_BITSPERPEL | DM_DISPLAYORIENTATION
-
-                // Test the change first
-                let testResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_TEST, IntPtr.Zero)
-                if testResult <> DISP.DISP_CHANGE_SUCCESSFUL then
-                    let errorMsg = match testResult with
-                                   | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
-                                   | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed the mode change"
-                                   | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
-                                   | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
-                                   | _ -> sprintf "Unknown error code: %d" testResult
-                    Error (sprintf "Display mode test failed for %s: %s" displayId errorMsg)
-                else
-                    // Apply the change
-                    let applyResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-                    if applyResult = DISP.DISP_CHANGE_SUCCESSFUL then
-                        printfn "Successfully applied display mode to %s" displayId
-                        Ok ()
-                    elif applyResult = DISP.DISP_CHANGE_RESTART then
-                        printfn "Display mode applied to %s, restart required" displayId
-                        Ok () // Still consider success, just inform user
+                // Try two approaches based on whether we're changing resolution
+                let isResolutionChange = originalWidth <> uint32 mode.Width || originalHeight <> uint32 mode.Height
+                
+                let dmFields = 
+                    if isResolutionChange then
+                        // For resolution changes, use only the essential fields
+                        printfn "[DEBUG] Resolution change detected - using minimal fields"
+                        0x00080000u ||| 0x00040000u ||| 0x00020000u ||| 0x00400000u
+                        // DM_BITSPERPEL | DM_PELSHEIGHT | DM_PELSWIDTH | DM_DISPLAYFREQUENCY
                     else
-                        let errorMsg = match applyResult with
+                        // For refresh rate only changes, preserve original fields
+                        printfn "[DEBUG] Refresh rate only change - preserving original fields"
+                        devMode.dmFields ||| 0x00400000u ||| 0x00000080u
+                        // Original fields | DM_DISPLAYFREQUENCY | DM_DISPLAYORIENTATION
+                
+                devMode.dmFields <- dmFields
+                
+                printfn "[DEBUG] Updated DEVMODE values:"
+                printfn "[DEBUG]   New Resolution: %ux%u @ %uHz" devMode.dmPelsWidth devMode.dmPelsHeight devMode.dmDisplayFrequency
+                printfn "[DEBUG]   New BitsPerPixel: %u" devMode.dmBitsPerPel
+                printfn "[DEBUG]   New Orientation: %u" devMode.dmDisplayOrientation
+                printfn "[DEBUG]   New dmFields: 0x%08X" devMode.dmFields
+                printfn "[DEBUG]   Fields breakdown:"
+                printfn "[DEBUG]     DM_BITSPERPEL (0x00080000): %b" (dmFields &&& 0x00080000u <> 0u)
+                printfn "[DEBUG]     DM_PELSHEIGHT (0x00040000): %b" (dmFields &&& 0x00040000u <> 0u)
+                printfn "[DEBUG]     DM_PELSWIDTH (0x00020000): %b" (dmFields &&& 0x00020000u <> 0u)
+                printfn "[DEBUG]     DM_DISPLAYFREQUENCY (0x00400000): %b" (dmFields &&& 0x00400000u <> 0u)
+                printfn "[DEBUG]     DM_DISPLAYORIENTATION (0x00000080): %b" (dmFields &&& 0x00000080u <> 0u)
+
+                // Before testing, verify this mode exists in our enumerated modes
+                printfn "[DEBUG] Verifying mode exists in enumerated modes..."
+                let allModes = getAllDisplayModes displayId
+                let modeExists = allModes |> List.exists (fun m -> 
+                    m.Width = mode.Width && m.Height = mode.Height && m.RefreshRate = mode.RefreshRate)
+                printfn "[DEBUG] Mode %dx%d @ %dHz exists in enumerated modes: %b" mode.Width mode.Height mode.RefreshRate modeExists
+                
+                if not modeExists then
+                    // Log available modes for this resolution
+                    let availableForResolution = allModes |> List.filter (fun m -> m.Width = mode.Width && m.Height = mode.Height)
+                    if availableForResolution.Length > 0 then
+                        printfn "[DEBUG] Available refresh rates for %dx%d:" mode.Width mode.Height
+                        availableForResolution |> List.iter (fun m -> printfn "[DEBUG]   - %dHz" m.RefreshRate)
+                    else
+                        printfn "[DEBUG] No modes found for resolution %dx%d" mode.Width mode.Height
+                    
+                    Error (sprintf "Mode %dx%d @ %dHz is not supported by display %s" mode.Width mode.Height mode.RefreshRate displayId)
+                else
+                    // Try to get the exact DEVMODE structure for the target mode
+                    printfn "[DEBUG] Getting exact DEVMODE structure for target mode..."
+                    let mutable finalDevMode = 
+                        match getExactDevModeForMode displayId mode with
+                        | Some exactDevMode ->
+                            printfn "[DEBUG] Found exact DEVMODE - using it instead of modified current mode"
+                            
+                            // Use the exact mode but preserve orientation
+                            let mutable targetDevMode = exactDevMode
+                            targetDevMode.dmDisplayOrientation <- orientationToWindows orientation
+                            
+                            // Only add orientation field if it's different
+                            if orientation <> Landscape then
+                                targetDevMode.dmFields <- targetDevMode.dmFields ||| 0x00000080u // DM_DISPLAYORIENTATION
+                            
+                            printfn "[DEBUG] Using exact DEVMODE with fields: 0x%08X" targetDevMode.dmFields
+                            targetDevMode
+                        | None ->
+                            printfn "[DEBUG] Could not find exact DEVMODE - using modified current mode"
+                            devMode
+                    
+                    // Test the change first
+                    printfn "[DEBUG] Testing display mode change with CDS_TEST flag..."
+                    let testResult = ChangeDisplaySettingsEx(displayId, &finalDevMode, IntPtr.Zero, CDS.CDS_TEST, IntPtr.Zero)
+                    printfn "[DEBUG] Test result: %d" testResult
+                    
+                    if testResult <> DISP.DISP_CHANGE_SUCCESSFUL then
+                        let errorMsg = match testResult with
                                        | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
                                        | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed the mode change"
                                        | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
                                        | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
-                                       | _ -> sprintf "Unknown error code: %d" applyResult
-                        Error (sprintf "Failed to apply display mode to %s: %s" displayId errorMsg)
+                                       | x when x = DISP.DISP_CHANGE_NOTUPDATED -> "Unable to write settings to registry"
+                                       | x when x = DISP.DISP_CHANGE_BADDUALVIEW -> "Bad dual view configuration"
+                                       | _ -> sprintf "Unknown error code: %d" testResult
+                        printfn "[DEBUG] ERROR: Display mode test failed: %s" errorMsg
+                        Error (sprintf "Display mode test failed for %s: %s" displayId errorMsg)
+                    else
+                        // Apply the change
+                        printfn "[DEBUG] Test successful! Applying display mode change..."
+                        printfn "[DEBUG] Using flags: CDS_UPDATEREGISTRY (0x%08X)" CDS.CDS_UPDATEREGISTRY
+                        
+                        let applyResult = ChangeDisplaySettingsEx(displayId, &finalDevMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                        printfn "[DEBUG] Apply result: %d" applyResult
+                        
+                        if applyResult = DISP.DISP_CHANGE_SUCCESSFUL then
+                            printfn "[DEBUG] SUCCESS: Display mode applied successfully!"
+                            
+                            // Verify the change took effect
+                            let mutable verifyMode = DEVMODE()
+                            verifyMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                            let verifyResult = EnumDisplaySettings(displayId, -1, &verifyMode)
+                            if verifyResult then
+                                printfn "[DEBUG] Verification - New settings:"
+                                printfn "[DEBUG]   Resolution: %ux%u @ %uHz" verifyMode.dmPelsWidth verifyMode.dmPelsHeight verifyMode.dmDisplayFrequency
+                                printfn "[DEBUG]   Orientation: %u" verifyMode.dmDisplayOrientation
+                                
+                                if verifyMode.dmPelsWidth <> uint32 mode.Width || 
+                                   verifyMode.dmPelsHeight <> uint32 mode.Height ||
+                                   verifyMode.dmDisplayFrequency <> uint32 mode.RefreshRate then
+                                    printfn "[DEBUG] WARNING: Verified settings don't match requested settings!"
+                            
+                            Ok ()
+                        elif applyResult = DISP.DISP_CHANGE_RESTART then
+                            printfn "[DEBUG] Display mode applied, but system restart required"
+                            Ok () // Still consider success, just inform user
+                        else
+                            let errorMsg = match applyResult with
+                                           | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
+                                           | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed the mode change"
+                                           | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                           | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
+                                           | x when x = DISP.DISP_CHANGE_NOTUPDATED -> "Unable to write settings to registry"
+                                           | x when x = DISP.DISP_CHANGE_BADDUALVIEW -> "Bad dual view configuration"
+                                           | _ -> sprintf "Unknown error code: %d" applyResult
+                            printfn "[DEBUG] ERROR: Failed to apply display mode: %s" errorMsg
+                            Error (sprintf "Failed to apply display mode to %s: %s" displayId errorMsg)
         with
         | ex ->
+            printfn "[DEBUG] EXCEPTION in applyDisplayMode: %s" ex.Message
+            printfn "[DEBUG] Stack trace: %s" ex.StackTrace
             Error (sprintf "Exception applying display mode to %s: %s" displayId ex.Message)
 
     // Set display as primary
@@ -524,3 +688,56 @@ module WindowsDisplaySystem =
         with
         | ex ->
             Error (sprintf "Exception setting %s as primary: %s" displayId ex.Message)
+
+    // Test display mode temporarily for 15 seconds then revert
+    let testDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) onComplete =
+        async {
+            try
+                printfn "[DEBUG] ========== Starting testDisplayMode =========="
+                printfn "[DEBUG] Testing mode %dx%d @ %dHz for 15 seconds" mode.Width mode.Height mode.RefreshRate
+                
+                // Get current display settings to restore later
+                let mutable currentDevMode = DEVMODE()
+                currentDevMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                let getCurrentResult = EnumDisplaySettings(displayId, -1, &currentDevMode)
+                
+                if not getCurrentResult then
+                    printfn "[DEBUG] ERROR: Could not get current display settings for test mode"
+                    onComplete (Error "Could not get current display settings")
+                else
+                    let originalMode = {
+                        Width = int currentDevMode.dmPelsWidth
+                        Height = int currentDevMode.dmPelsHeight
+                        RefreshRate = int currentDevMode.dmDisplayFrequency
+                        BitsPerPixel = int currentDevMode.dmBitsPerPel
+                    }
+                    let originalOrientation = windowsToOrientation currentDevMode.dmDisplayOrientation
+                    
+                    printfn "[DEBUG] Original mode: %dx%d @ %dHz, orientation: %A" 
+                            originalMode.Width originalMode.Height originalMode.RefreshRate originalOrientation
+                    
+                    // Apply the test mode
+                    match applyDisplayMode displayId mode orientation with
+                    | Ok _ ->
+                        printfn "[DEBUG] Test mode applied successfully, waiting 15 seconds..."
+                        
+                        // Wait for 15 seconds
+                        do! Async.Sleep(15000)
+                        
+                        // Revert to original mode
+                        printfn "[DEBUG] Reverting to original mode..."
+                        match applyDisplayMode displayId originalMode originalOrientation with
+                        | Ok _ ->
+                            printfn "[DEBUG] Successfully reverted to original mode"
+                            onComplete (Ok "Test completed - reverted to original mode")
+                        | Error err ->
+                            printfn "[DEBUG] ERROR: Failed to revert to original mode: %s" err
+                            onComplete (Error (sprintf "Test completed but failed to revert: %s" err))
+                    | Error err ->
+                        printfn "[DEBUG] ERROR: Failed to apply test mode: %s" err
+                        onComplete (Error (sprintf "Failed to apply test mode: %s" err))
+            with
+            | ex ->
+                printfn "[DEBUG] EXCEPTION in testDisplayMode: %s" ex.Message
+                onComplete (Error (sprintf "Exception during test: %s" ex.Message))
+        }
