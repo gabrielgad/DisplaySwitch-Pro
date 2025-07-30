@@ -24,9 +24,21 @@ module GUI =
         | Some window ->
             match globalAdapter with
             | Some adapter ->
+                // Re-detect displays to get updated information
+                printfn "[DEBUG GUI] Refreshing display information..."
+                let freshDisplays = adapter.GetConnectedDisplays()
+                
+                // Update the world with fresh display data
+                let mutable updatedComponents = globalWorld.Components
+                for display in freshDisplays do
+                    updatedComponents <- Components.addDisplay display updatedComponents
+                
+                globalWorld <- { globalWorld with Components = updatedComponents }
+                
+                // Recreate the UI with updated display info
                 let content = createMainContentPanel globalWorld adapter
                 window.Content <- content
-                printfn "UI refreshed in-place"
+                printfn "[DEBUG GUI] UI refreshed with %d displays" freshDisplays.Length
             | None -> ()
         | None -> ()
     
@@ -158,21 +170,55 @@ module GUI =
                 match Map.tryFind presetName currentWorld.Components.SavedPresets with
                 | Some config ->
                     printfn "Debug: Found preset config with %d displays" config.Displays.Length
+                    printfn "Debug: ========== APPLYING PRESET: %s ==========" presetName
                     
                     currentWorld <- PresetSystem.loadPreset presetName currentWorld
                     
                     let mutable updatedComponents = currentWorld.Components
+                    
+                    // Apply each display's settings to the physical hardware
                     for display in config.Displays do
-                        printfn "Debug: Setting display %s to position (%d, %d) and enabled: %b" display.Id display.Position.X display.Position.Y display.IsEnabled
+                        printfn "Debug: Applying display %s - Position: (%d, %d), Enabled: %b, Primary: %b" 
+                                display.Id display.Position.X display.Position.Y display.IsEnabled display.IsPrimary
+                        printfn "Debug: Resolution: %dx%d @ %dHz, Orientation: %A" 
+                                display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate display.Orientation
+                        
+                        // Update component state
                         updatedComponents <- Components.addDisplay display updatedComponents
+                        
+                        // Apply settings to physical display if it's enabled
+                        if display.IsEnabled then
+                            let mode = { 
+                                Width = display.Resolution.Width
+                                Height = display.Resolution.Height
+                                RefreshRate = display.Resolution.RefreshRate
+                                BitsPerPixel = 32 
+                            }
+                            
+                            printfn "Debug: Applying physical display mode to %s" display.Id
+                            match WindowsDisplaySystem.applyDisplayMode display.Id mode display.Orientation with
+                            | Ok () ->
+                                printfn "Debug: Successfully applied display mode to %s" display.Id
+                                
+                                // Set as primary if specified
+                                if display.IsPrimary then
+                                    printfn "Debug: Setting %s as primary display" display.Id
+                                    match WindowsDisplaySystem.setPrimaryDisplay display.Id with
+                                    | Ok () -> printfn "Debug: Successfully set %s as primary" display.Id
+                                    | Error err -> printfn "Debug: Failed to set %s as primary: %s" display.Id err
+                                    
+                            | Error err ->
+                                printfn "Debug: Failed to apply display mode to %s: %s" display.Id err
+                        else
+                            printfn "Debug: Skipping disabled display %s" display.Id
                     
                     currentWorld <- { currentWorld with Components = updatedComponents }
                     globalWorld <- currentWorld
                     
-                    printfn "Preset loaded - display data updated, refreshing UI"
+                    printfn "Debug: Preset application completed, refreshing UI"
                     refreshMainWindowContent ()
                     
-                    printfn "Loading preset: %s completed" presetName
+                    printfn "Debug: Loading preset %s completed successfully" presetName
                 | None ->
                     printfn "Debug: Preset %s not found!" presetName
         
@@ -262,25 +308,36 @@ module GUI =
             
             // Create modal handlers
             let onApplyMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) (isPrimary: bool) =
-                printfn "DEBUG: Applying mode %dx%d @ %dHz to display %s, orientation: %A, primary: %b" 
-                        mode.Width mode.Height mode.RefreshRate displayId orientation isPrimary
+                printfn "[DEBUG GUI] ========== onApplyMode called =========="
+                printfn "[DEBUG GUI] Display ID: %s" displayId
+                printfn "[DEBUG GUI] Mode: %dx%d @ %dHz (BitsPerPixel: %d)" mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
+                printfn "[DEBUG GUI] Orientation: %A" orientation
+                printfn "[DEBUG GUI] Set as Primary: %b" isPrimary
                 
                 // Apply display mode (resolution, refresh rate, orientation)
+                printfn "[DEBUG GUI] Calling WindowsDisplaySystem.applyDisplayMode..."
                 match WindowsDisplaySystem.applyDisplayMode displayId mode orientation with
                 | Ok () -> 
-                    printfn "Successfully applied display mode to %s" displayId
+                    printfn "[DEBUG GUI] applyDisplayMode returned Ok - Display mode applied successfully!"
                     
                     // If setting as primary, apply that change too
                     if isPrimary then
+                        printfn "[DEBUG GUI] Setting display as primary..."
                         match WindowsDisplaySystem.setPrimaryDisplay displayId with
-                        | Ok () -> printfn "Successfully set %s as primary display" displayId
-                        | Error err -> printfn "Failed to set %s as primary: %s" displayId err
+                        | Ok () -> printfn "[DEBUG GUI] Successfully set %s as primary display" displayId
+                        | Error err -> printfn "[DEBUG GUI] ERROR: Failed to set %s as primary: %s" displayId err
                     
                     // Refresh the main window to show updated display info
+                    printfn "[DEBUG GUI] Refreshing main window content..."
                     refreshMainWindowContent()
+                    printfn "[DEBUG GUI] Main window refresh completed"
+                    
+                    // Note: Dialog content refresh would be nice but complex due to scope issues
+                    // For now, user can close and reopen dialog to see updated settings
+                    printfn "[DEBUG GUI] Dialog remains open with previous settings - close and reopen to see changes"
                     
                 | Error err -> 
-                    printfn "Failed to apply display mode to %s: %s" displayId err
+                    printfn "[DEBUG GUI] ERROR: applyDisplayMode failed - %s" err
             
             let onCloseDialog () =
                 printfn "DEBUG: Dialog closed"
@@ -335,6 +392,10 @@ module GUI =
                         
                         // Refresh the main window to show updated display info
                         refreshMainWindowContent()
+                        
+                        // Note: Dialog content refresh would be nice but complex due to scope issues
+                        // For now, user can close and reopen dialog to see updated settings
+                        printfn "[DEBUG GUI] Dialog remains open with previous settings - close and reopen to see changes"
                         
                     | Error err -> 
                         printfn "Failed to apply display mode to %s: %s" displayId err
@@ -470,6 +531,10 @@ module GUI =
                         
                         // Refresh the main window to show updated display info
                         refreshMainWindowContent()
+                        
+                        // Note: Dialog content refresh would be nice but complex due to scope issues
+                        // For now, user can close and reopen dialog to see updated settings
+                        printfn "[DEBUG GUI] Dialog remains open with previous settings - close and reopen to see changes"
                         
                     | Error err -> 
                         printfn "Failed to apply display mode to %s: %s" displayId err
