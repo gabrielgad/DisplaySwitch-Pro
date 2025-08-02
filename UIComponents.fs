@@ -42,6 +42,7 @@ module UIComponents =
         disabledGradient.GradientStops.Add(GradientStop(colors.DisabledBgDark, 1.0))
         
         rect.Fill <- if display.IsEnabled then enabledGradient :> IBrush else disabledGradient :> IBrush
+        rect.Opacity <- if display.IsEnabled then 1.0 else 0.5 // Make disabled displays more obviously different
         rect.Stroke <- SolidColorBrush(colors.Border) :> IBrush
         rect.StrokeThickness <- 1.5
         rect.RadiusX <- 8.0
@@ -250,7 +251,15 @@ module UIComponents =
             displayInfo.Children.Add(resolutionText)
             
             let statusText = TextBlock()
-            statusText.Text <- sprintf "%s • %s" (if display.IsPrimary then "Primary" else "Secondary") (if display.IsEnabled then "Active" else "Inactive")
+            // Show different status based on whether it's actually inactive vs software disabled
+            let statusDescription = 
+                if display.Name.Contains("[Inactive]") then
+                    "Hardware Inactive" // Actually disconnected/inactive
+                else if display.IsEnabled then
+                    "Active"
+                else
+                    "Software Disabled" // Disabled via application
+            statusText.Text <- sprintf "%s • %s" (if display.IsPrimary then "Primary" else "Secondary") statusDescription
             statusText.FontSize <- 10.0
             statusText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
             statusText.TextAlignment <- TextAlignment.Center

@@ -109,6 +109,118 @@ module WindowsAPI =
     [<DllImport("user32.dll", CharSet = CharSet.Auto)>]
     extern int ChangeDisplaySettingsEx(string lpszDeviceName, DEVMODE& lpDevMode, IntPtr hwnd, uint32 dwflags, IntPtr lParam)
 
+    [<DllImport("user32.dll", CharSet = CharSet.Auto, EntryPoint = "ChangeDisplaySettingsExW")>]
+    extern int ChangeDisplaySettingsExNull(string lpszDeviceName, IntPtr lpDevMode, IntPtr hwnd, uint32 dwflags, IntPtr lParam)
+
+    // CCD (Connecting and Configuring Displays) API structures
+    [<StructLayout(LayoutKind.Sequential)>]
+    type LUID =
+        struct
+            val mutable LowPart: uint32
+            val mutable HighPart: int32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_RATIONAL =
+        struct
+            val mutable Numerator: uint32
+            val mutable Denominator: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_2DREGION =
+        struct
+            val mutable cx: uint32
+            val mutable cy: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type POINTL =
+        struct
+            val mutable x: int32
+            val mutable y: int32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_PATH_SOURCE_INFO =
+        struct
+            val mutable adapterId: LUID
+            val mutable id: uint32
+            val mutable modeInfoIdx: uint32
+            val mutable statusFlags: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_PATH_TARGET_INFO =
+        struct
+            val mutable adapterId: LUID
+            val mutable id: uint32
+            val mutable modeInfoIdx: uint32
+            val mutable outputTechnology: uint32
+            val mutable rotation: uint32
+            val mutable scaling: uint32
+            val mutable refreshRate: DISPLAYCONFIG_RATIONAL
+            val mutable scanLineOrdering: uint32
+            val mutable targetAvailable: int32
+            val mutable statusFlags: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_PATH_INFO =
+        struct
+            val mutable sourceInfo: DISPLAYCONFIG_PATH_SOURCE_INFO
+            val mutable targetInfo: DISPLAYCONFIG_PATH_TARGET_INFO
+            val mutable flags: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_SOURCE_MODE =
+        struct
+            val mutable width: uint32
+            val mutable height: uint32
+            val mutable pixelFormat: uint32
+            val mutable position: POINTL
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_VIDEO_SIGNAL_INFO =
+        struct
+            val mutable pixelRate: uint64
+            val mutable hSyncFreq: DISPLAYCONFIG_RATIONAL
+            val mutable vSyncFreq: DISPLAYCONFIG_RATIONAL
+            val mutable activeSize: DISPLAYCONFIG_2DREGION
+            val mutable totalSize: DISPLAYCONFIG_2DREGION
+            val mutable videoStandard: uint32
+            val mutable scanLineOrdering: uint32
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_TARGET_MODE =
+        struct
+            val mutable targetVideoSignalInfo: DISPLAYCONFIG_VIDEO_SIGNAL_INFO
+        end
+
+    [<StructLayout(LayoutKind.Explicit)>]
+    type DISPLAYCONFIG_MODE_INFO_UNION =
+        struct
+            [<FieldOffset(0)>]
+            val mutable targetMode: DISPLAYCONFIG_TARGET_MODE
+            [<FieldOffset(0)>]
+            val mutable sourceMode: DISPLAYCONFIG_SOURCE_MODE
+        end
+
+    [<StructLayout(LayoutKind.Sequential)>]
+    type DISPLAYCONFIG_MODE_INFO =
+        struct
+            val mutable infoType: uint32
+            val mutable id: uint32
+            val mutable adapterId: LUID
+            val mutable modeInfo: DISPLAYCONFIG_MODE_INFO_UNION
+        end
+
+
+
+
     // ChangeDisplaySettings flags
     module CDS =
         let CDS_UPDATEREGISTRY = 0x00000001u
@@ -140,10 +252,289 @@ module WindowsAPI =
         let DMDO_180 = 2u
         let DMDO_270 = 3u
 
+    // CCD API constants
+    module QDC =
+        let QDC_ALL_PATHS = 0x00000001u
+        let QDC_ONLY_ACTIVE_PATHS = 0x00000002u
+        let QDC_DATABASE_CURRENT = 0x00000004u
+
+    module SDC =
+        let SDC_TOPOLOGY_INTERNAL = 0x00000001u
+        let SDC_TOPOLOGY_CLONE = 0x00000002u
+        let SDC_TOPOLOGY_EXTEND = 0x00000004u
+        let SDC_TOPOLOGY_EXTERNAL = 0x00000008u
+        let SDC_APPLY = 0x00000080u
+        let SDC_NO_OPTIMIZATION = 0x00000100u
+        let SDC_VALIDATE = 0x00000200u
+        let SDC_USE_SUPPLIED_DISPLAY_CONFIG = 0x00000020u
+        let SDC_ALLOW_CHANGES = 0x00000400u
+        let SDC_PATH_PERSIST_IF_REQUIRED = 0x00000800u
+        let SDC_FORCE_MODE_ENUMERATION = 0x00001000u
+        let SDC_ALLOW_PATH_ORDER_CHANGES = 0x00002000u
+
+    module DISPLAYCONFIG_PATH =
+        let DISPLAYCONFIG_PATH_ACTIVE = 0x00000001u
+
+    module ERROR =
+        let ERROR_SUCCESS = 0
+        let ERROR_INVALID_PARAMETER = 87
+        let ERROR_NOT_SUPPORTED = 50
+        let ERROR_ACCESS_DENIED = 5
+        let ERROR_INSUFFICIENT_BUFFER = 122
+        let ERROR_GEN_FAILURE = 31
+
+    // CCD (Connecting and Configuring Displays) API functions
+    [<DllImport("user32.dll")>]
+    extern int GetDisplayConfigBufferSizes(uint32 flags, uint32& numPathArrayElements, uint32& numModeInfoArrayElements)
+
+    [<DllImport("user32.dll")>]
+    extern int QueryDisplayConfig(uint32 flags, uint32& numPathArrayElements, 
+                                  [<In; Out>] DISPLAYCONFIG_PATH_INFO[] pathArray,
+                                  uint32& numModeInfoArrayElements,
+                                  [<In; Out>] DISPLAYCONFIG_MODE_INFO[] modeInfoArray,
+                                  IntPtr currentTopologyId)
+
+    [<DllImport("user32.dll")>]
+    extern int SetDisplayConfig(uint32 numPathArrayElements,
+                                DISPLAYCONFIG_PATH_INFO[] pathArray,
+                                uint32 numModeInfoArrayElements,
+                                DISPLAYCONFIG_MODE_INFO[] modeInfoArray,
+                                uint32 flags)
+
+
 // Windows Display Detection System following ECS architecture
 module WindowsDisplaySystem =
     
     open WindowsAPI
+    open System.Runtime.InteropServices
+    open System.Collections.Generic
+    open System.IO
+    open System.Text.Json
+    
+    // Display state cache for remembering display configurations
+    type DisplayStateCache = {
+        DisplayId: string
+        Position: Position
+        Resolution: Resolution
+        OrientationValue: int // Store as int instead of discriminated union
+        IsPrimary: bool
+        SavedAt: System.DateTime
+    }
+    
+    // In-memory cache of display states
+    let private displayStateCache = Dictionary<string, DisplayStateCache>()
+    
+    // File path for persisting display states
+    let private getStateCacheFilePath() =
+        let appDataPath = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData)
+        let appFolder = Path.Combine(appDataPath, "DisplaySwitchPro")
+        Directory.CreateDirectory(appFolder) |> ignore
+        Path.Combine(appFolder, "display-states.json")
+    
+    // Load display states from file
+    let private loadDisplayStates() =
+        try
+            let filePath = getStateCacheFilePath()
+            if File.Exists(filePath) then
+                let json = File.ReadAllText(filePath)
+                let states = JsonSerializer.Deserialize<DisplayStateCache[]>(json)
+                displayStateCache.Clear()
+                for state in states do
+                    displayStateCache.[state.DisplayId] <- state
+                printfn "[DEBUG] Loaded %d display states from cache" states.Length
+        with
+        | ex -> 
+            printfn "[DEBUG] Failed to load display states: %s" ex.Message
+    
+    // Save display states to file
+    let private saveDisplayStates() =
+        try
+            let filePath = getStateCacheFilePath()
+            let states = displayStateCache.Values |> Seq.toArray
+            let options = JsonSerializerOptions(WriteIndented = true)
+            let json = JsonSerializer.Serialize(states, options)
+            File.WriteAllText(filePath, json)
+            printfn "[DEBUG] Saved %d display states to cache" states.Length
+        with
+        | ex -> 
+            printfn "[DEBUG] Failed to save display states: %s" ex.Message
+    
+    // Convert DisplayOrientation to Windows API orientation value
+    let private orientationToWindows (orientation: DisplayOrientation) =
+        match orientation with
+        | Landscape -> DMDO.DMDO_DEFAULT
+        | Portrait -> DMDO.DMDO_90
+        | LandscapeFlipped -> DMDO.DMDO_180
+        | PortraitFlipped -> DMDO.DMDO_270
+
+    // Convert Windows API orientation value to DisplayOrientation
+    let private windowsToOrientation (windowsOrientation: uint32) =
+        match windowsOrientation with
+        | x when x = DMDO.DMDO_DEFAULT -> Landscape
+        | x when x = DMDO.DMDO_90 -> Portrait
+        | x when x = DMDO.DMDO_180 -> LandscapeFlipped
+        | x when x = DMDO.DMDO_270 -> PortraitFlipped
+        | _ -> Landscape // Default fallback
+    
+    // Convert DisplayOrientation to int for JSON serialization
+    let private orientationToInt (orientation: DisplayOrientation) =
+        match orientation with
+        | Landscape -> 0
+        | Portrait -> 1
+        | LandscapeFlipped -> 2
+        | PortraitFlipped -> 3
+    
+    // Convert int to DisplayOrientation from JSON deserialization
+    let private intToOrientation (value: int) =
+        match value with
+        | 0 -> Landscape
+        | 1 -> Portrait
+        | 2 -> LandscapeFlipped
+        | 3 -> PortraitFlipped
+        | _ -> Landscape // Default fallback
+    
+    // Save current display state to cache
+    let private saveDisplayState (displayId: string) =
+        try
+            // Get current display information
+            let mutable devMode = DEVMODE()
+            devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+            
+            let result = EnumDisplaySettings(displayId, -1, &devMode)
+            if result then
+                let state = {
+                    DisplayId = displayId
+                    Position = { X = devMode.dmPositionX; Y = devMode.dmPositionY }
+                    Resolution = { 
+                        Width = int devMode.dmPelsWidth
+                        Height = int devMode.dmPelsHeight
+                        RefreshRate = int devMode.dmDisplayFrequency
+                    }
+                    OrientationValue = orientationToInt (windowsToOrientation devMode.dmDisplayOrientation)
+                    IsPrimary = (devMode.dmPositionX = 0 && devMode.dmPositionY = 0) // Simple check
+                    SavedAt = System.DateTime.Now
+                }
+                
+                displayStateCache.[displayId] <- state
+                saveDisplayStates() // Persist to file
+                
+                printfn "[DEBUG] Saved display state for %s: %dx%d @ %dHz at (%d, %d)" 
+                        displayId state.Resolution.Width state.Resolution.Height 
+                        state.Resolution.RefreshRate state.Position.X state.Position.Y
+                true
+            else
+                printfn "[DEBUG] Failed to get current settings for %s" displayId
+                false
+        with
+        | ex ->
+            printfn "[DEBUG] Error saving display state: %s" ex.Message
+            false
+    
+    // Get saved display state from cache
+    let private getSavedDisplayState (displayId: string) =
+        match displayStateCache.TryGetValue(displayId) with
+        | true, state -> Some state
+        | false, _ -> None
+    
+    // Initialize - load saved states on module init
+    let private initializeStateCache() =
+        loadDisplayStates()
+
+    // CCD API helper functions
+    let private getDisplayPaths includeInactive =
+        try
+            let mutable pathCount = 0u
+            let mutable modeCount = 0u
+            
+            // Get the required buffer sizes
+            let flags = if includeInactive then QDC.QDC_ALL_PATHS else QDC.QDC_ONLY_ACTIVE_PATHS
+            let sizeResult = GetDisplayConfigBufferSizes(flags, &pathCount, &modeCount)
+            
+            if sizeResult <> ERROR.ERROR_SUCCESS then
+                printfn "[DEBUG] GetDisplayConfigBufferSizes failed with error: %d" sizeResult
+                Error (sprintf "Failed to get display config buffer sizes: %d" sizeResult)
+            else
+                printfn "[DEBUG] Buffer sizes - Paths: %d, Modes: %d" pathCount modeCount
+                
+                // Allocate arrays
+                let pathArray = Array.zeroCreate<DISPLAYCONFIG_PATH_INFO> (int pathCount)
+                let modeArray = Array.zeroCreate<DISPLAYCONFIG_MODE_INFO> (int modeCount)
+                
+                // Query the display configuration
+                let queryResult = QueryDisplayConfig(flags, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
+                
+                if queryResult <> ERROR.ERROR_SUCCESS then
+                    printfn "[DEBUG] QueryDisplayConfig failed with error: %d" queryResult
+                    Error (sprintf "Failed to query display config: %d" queryResult)
+                else
+                    printfn "[DEBUG] Successfully queried %d paths and %d modes" pathCount modeCount
+                    Ok (pathArray, modeArray, pathCount, modeCount)
+        with
+        | ex ->
+            printfn "[DEBUG] Exception in getDisplayPaths: %s" ex.Message
+            Error (sprintf "Exception getting display paths: %s" ex.Message)
+
+    // Simplified but robust mapping that works for both enabling and disabling displays
+    let private findDisplayPathByDevice displayId (paths: DISPLAYCONFIG_PATH_INFO[]) pathCount =
+        try
+            // Extract display number from "\\.\DISPLAY3" -> 3
+            let displayNumber = 
+                if (displayId: string).StartsWith(@"\\.\DISPLAY") then
+                    let mutable result = 0
+                    match System.Int32.TryParse((displayId: string).Substring(11), &result) with
+                    | true -> Some result // Keep 1-based for easier debugging
+                    | false -> None
+                else None
+            
+            match displayNumber with
+            | Some displayNum ->
+                printfn "[DEBUG] Looking for display %d in %d paths" displayNum pathCount
+                
+                // Strategy 1: Look for paths by source ID (most reliable)
+                let mutable foundPath = None
+                let mutable foundIndex = -1
+                
+                // Try to find path where source ID matches display number - 1 (0-based)
+                for i in 0 .. int pathCount - 1 do
+                    let path = paths.[i]
+                    if int path.sourceInfo.id = (displayNum - 1) then
+                        printfn "[DEBUG] Found path with source ID %d matching display %d" path.sourceInfo.id displayNum
+                        foundPath <- Some path
+                        foundIndex <- i
+                
+                match foundPath with
+                | Some path -> 
+                    printfn "[DEBUG] Mapped display %s to path index %d (source ID match)" displayId foundIndex
+                    Ok (path, foundIndex)
+                | None ->
+                    // Strategy 2: Use display index directly as fallback
+                    let pathIndex = displayNum - 1 // Convert to 0-based
+                    if pathIndex >= 0 && pathIndex < int pathCount then
+                        let path = paths.[pathIndex]
+                        printfn "[DEBUG] Mapped display %s to path index %d (direct index)" displayId pathIndex
+                        Ok (path, pathIndex)
+                    else
+                        // Strategy 3: Search through all paths for any that could match
+                        printfn "[DEBUG] Direct index %d out of range, searching all paths..." pathIndex
+                        if int pathCount > 0 then
+                            // Just take the path at index (displayNum - 1) mod pathCount to avoid out of bounds
+                            let wrappedIndex = (displayNum - 1) % int pathCount
+                            let path = paths.[wrappedIndex]
+                            printfn "[DEBUG] Using wrapped index %d for display %s" wrappedIndex displayId
+                            Ok (path, wrappedIndex)
+                        else
+                            Error (sprintf "No paths available for display %s" displayId)
+            | None ->
+                printfn "[DEBUG] Could not parse display number from %s" displayId
+                Error (sprintf "Could not parse display number from %s" displayId)
+        with
+        | ex ->
+            printfn "[DEBUG] Exception mapping display path: %s" ex.Message
+            Error (sprintf "Exception mapping display path: %s" ex.Message)
+
+    // Find the display path for a specific display ID (using simplified approach)
+    let private findDisplayPath displayId (paths: DISPLAYCONFIG_PATH_INFO[]) pathCount =
+        findDisplayPathByDevice displayId paths pathCount
     
     // Get monitor friendly names using WMI
     let private getMonitorFriendlyNames() =
@@ -468,23 +859,6 @@ module WindowsDisplaySystem =
             printfn "Windows display detection failed: %s" ex.Message
             []
 
-    // Convert DisplayOrientation to Windows API orientation value
-    let private orientationToWindows (orientation: DisplayOrientation) =
-        match orientation with
-        | Landscape -> DMDO.DMDO_DEFAULT
-        | Portrait -> DMDO.DMDO_90
-        | LandscapeFlipped -> DMDO.DMDO_180
-        | PortraitFlipped -> DMDO.DMDO_270
-
-    // Convert Windows API orientation value to DisplayOrientation
-    let private windowsToOrientation (windowsOrientation: uint32) =
-        match windowsOrientation with
-        | x when x = DMDO.DMDO_DEFAULT -> Landscape
-        | x when x = DMDO.DMDO_90 -> Portrait
-        | x when x = DMDO.DMDO_180 -> LandscapeFlipped
-        | x when x = DMDO.DMDO_270 -> PortraitFlipped
-        | _ -> Landscape // Default fallback
-
     // Apply display mode changes (resolution, refresh rate, orientation)
     let applyDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) =
         try
@@ -689,6 +1063,318 @@ module WindowsDisplaySystem =
         | ex ->
             Error (sprintf "Exception setting %s as primary: %s" displayId ex.Message)
 
+    // Enable or disable a display using CCD API
+    let setDisplayEnabled (displayId: DisplayId) (enabled: bool) =
+        try
+            printfn "[DEBUG] ========== Starting setDisplayEnabled =========="
+            printfn "[DEBUG] Display ID: %s" displayId
+            printfn "[DEBUG] Target Enabled State: %b" enabled
+
+            // Use the CCD API approach which properly disables/enables displays
+            printfn "[DEBUG] Using Windows CCD API to %s display..." (if enabled then "enable" else "disable")
+            
+            // Get all display paths (including inactive ones for enabling)
+            match getDisplayPaths true with
+            | Error err ->
+                printfn "[DEBUG] Failed to get display paths: %s" err
+                Error (sprintf "Failed to get display configuration: %s" err)
+            | Ok (pathArray, modeArray, pathCount, modeCount) ->
+                printfn "[DEBUG] Got %d paths and %d modes" pathCount modeCount
+                
+                if enabled then
+                    // Enable display - find inactive path and activate it
+                    printfn "[DEBUG] Looking for inactive display path to enable..."
+                    
+                    // Find the path for our target display
+                    match findDisplayPath displayId pathArray pathCount with
+                    | Error err ->
+                        printfn "[DEBUG] Could not find display path: %s" err
+                        Error (sprintf "Display %s not found in configuration: %s" displayId err)
+                    | Ok (targetPath, pathIndex) ->
+                        printfn "[DEBUG] Found target display at path index %d" pathIndex
+                        printfn "[DEBUG] Current path flags: 0x%08X (active: %b)" 
+                                targetPath.flags 
+                                ((targetPath.flags &&& DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE) <> 0u)
+                        
+                        // Check if already enabled
+                        if (targetPath.flags &&& DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE) <> 0u then
+                            printfn "[DEBUG] Display is already enabled"
+                            Ok ()
+                        else
+                            // Enable the display by setting the active flag and ensuring valid mode configuration
+                            let mutable updatedPath = pathArray.[pathIndex]
+                            
+                            printfn "[DEBUG] Current source mode index: %d, target mode index: %d" 
+                                    updatedPath.sourceInfo.modeInfoIdx updatedPath.targetInfo.modeInfoIdx
+                            
+                            // Check if we need to set valid mode indices
+                            if updatedPath.sourceInfo.modeInfoIdx = 0xFFFFFFFFu || updatedPath.targetInfo.modeInfoIdx = 0xFFFFFFFFu then
+                                printfn "[DEBUG] Path has invalid mode indices, searching for valid modes..."
+                                
+                                // Find or create valid mode indices
+                                // Look for existing modes that match this adapter
+                                let mutable sourceIdx = 0xFFFFFFFFu
+                                let mutable targetIdx = 0xFFFFFFFFu
+                                
+                                for i in 0 .. int modeCount - 1 do
+                                    let mode = modeArray.[i]
+                                    // Check if this mode belongs to our adapter
+                                    if mode.adapterId.LowPart = updatedPath.sourceInfo.adapterId.LowPart &&
+                                       mode.adapterId.HighPart = updatedPath.sourceInfo.adapterId.HighPart then
+                                        if mode.infoType = 1u && sourceIdx = 0xFFFFFFFFu then // DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE
+                                            sourceIdx <- uint32 i
+                                            printfn "[DEBUG] Found source mode at index %d" i
+                                        elif mode.infoType = 2u && targetIdx = 0xFFFFFFFFu then // DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
+                                            targetIdx <- uint32 i
+                                            printfn "[DEBUG] Found target mode at index %d" i
+                                
+                                // If we found valid modes, use them
+                                if sourceIdx <> 0xFFFFFFFFu then
+                                    updatedPath.sourceInfo.modeInfoIdx <- sourceIdx
+                                if targetIdx <> 0xFFFFFFFFu then
+                                    updatedPath.targetInfo.modeInfoIdx <- targetIdx
+                                    
+                                printfn "[DEBUG] Updated mode indices - source: %d, target: %d" 
+                                        updatedPath.sourceInfo.modeInfoIdx updatedPath.targetInfo.modeInfoIdx
+                            
+                            // Set the active flag
+                            updatedPath.flags <- updatedPath.flags ||| DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
+                            
+                            // Ensure target is available
+                            updatedPath.targetInfo.targetAvailable <- 1
+                            
+                            pathArray.[pathIndex] <- updatedPath
+                            
+                            printfn "[DEBUG] Enabling display - setting DISPLAYCONFIG_PATH_ACTIVE flag"
+                            printfn "[DEBUG] New path flags: 0x%08X" updatedPath.flags
+                            printfn "[DEBUG] Target available: %d" updatedPath.targetInfo.targetAvailable
+                            
+                            // Try with different flag combinations for better compatibility
+                            let flags = SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES ||| SDC.SDC_ALLOW_PATH_ORDER_CHANGES
+                            
+                            printfn "[DEBUG] Attempting SetDisplayConfig with flags: 0x%08X" flags
+                            let setResult = SetDisplayConfig(pathCount, pathArray, modeCount, modeArray, flags)
+                            
+                            if setResult = ERROR.ERROR_SUCCESS then
+                                printfn "[DEBUG] SUCCESS: Display %s enabled via CCD API!" displayId
+                                Ok ()
+                            else
+                                // If that fails, try a different approach using ChangeDisplaySettingsEx
+                                printfn "[DEBUG] CCD API failed (%d), trying ChangeDisplaySettingsEx approach..." setResult
+                                
+                                // First try topology extend to refresh the configuration
+                                let extendFlags = SDC.SDC_APPLY ||| SDC.SDC_TOPOLOGY_EXTEND
+                                let _ = SetDisplayConfig(0u, null, 0u, null, extendFlags)
+                                
+                                // Now use ChangeDisplaySettingsEx to enable the display
+                                printfn "[DEBUG] Using ChangeDisplaySettingsEx to enable display..."
+                                
+                                // Check if we have saved state for this display
+                                let savedStateResult = 
+                                    match getSavedDisplayState displayId with
+                                    | Some savedState ->
+                                        printfn "[DEBUG] Found saved state for display %s from %s" displayId (savedState.SavedAt.ToString())
+                                        printfn "[DEBUG] Restoring to: %dx%d @ %dHz at position (%d, %d)" 
+                                                savedState.Resolution.Width savedState.Resolution.Height 
+                                                savedState.Resolution.RefreshRate savedState.Position.X savedState.Position.Y
+                                        
+                                        // Create a DEVMODE structure with saved state
+                                        let mutable devMode = DEVMODE()
+                                        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                                        devMode.dmPelsWidth <- uint32 savedState.Resolution.Width
+                                        devMode.dmPelsHeight <- uint32 savedState.Resolution.Height
+                                        devMode.dmDisplayFrequency <- uint32 savedState.Resolution.RefreshRate
+                                        devMode.dmBitsPerPel <- 32u // Default to 32-bit color
+                                        devMode.dmDisplayOrientation <- orientationToWindows (intToOrientation savedState.OrientationValue)
+                                        devMode.dmPositionX <- savedState.Position.X
+                                        devMode.dmPositionY <- savedState.Position.Y
+                                        
+                                        // Set all required fields for enabling
+                                        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u ||| 0x00000080u
+                                        // DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY | DM_POSITION | DM_DISPLAYORIENTATION
+                                        
+                                        // Apply the display settings
+                                        printfn "[DEBUG] Calling ChangeDisplaySettingsEx to restore display to saved state..."
+                                        let changeResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                                        
+                                        if changeResult = DISP.DISP_CHANGE_SUCCESSFUL then
+                                            printfn "[DEBUG] SUCCESS: Display %s restored to saved state!" displayId
+                                            Some (Ok ())
+                                        else
+                                            // Fall back to default behavior if restore fails
+                                            printfn "[DEBUG] Failed to restore saved state (error %d), falling back to auto-detect..." changeResult
+                                            None
+                                    
+                                    | None ->
+                                        printfn "[DEBUG] No saved state found for display %s, using auto-detection..." displayId
+                                        None
+                                
+                                // If saved state restore succeeded, use that result; otherwise fall back
+                                match savedStateResult with
+                                | Some result -> result
+                                | None ->
+                                    // Fallback: auto-detect best mode and position
+                                    // Get available modes for this display
+                                    let availableModes = getAllDisplayModes displayId
+                                    if not availableModes.IsEmpty then
+                                        // Find the best mode - prefer highest resolution, then highest refresh rate
+                                        let preferredMode = 
+                                            availableModes
+                                            |> List.sortByDescending (fun m -> (m.Width * m.Height, m.RefreshRate))
+                                            |> List.head
+                                            
+                                        printfn "[DEBUG] Enabling display with mode: %dx%d @ %dHz" 
+                                                preferredMode.Width preferredMode.Height preferredMode.RefreshRate
+                                        
+                                        // Create a DEVMODE structure for enabling the display
+                                        let mutable devMode = DEVMODE()
+                                        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                                        devMode.dmPelsWidth <- uint32 preferredMode.Width
+                                        devMode.dmPelsHeight <- uint32 preferredMode.Height
+                                        devMode.dmDisplayFrequency <- uint32 preferredMode.RefreshRate
+                                        devMode.dmBitsPerPel <- uint32 preferredMode.BitsPerPixel
+                                        devMode.dmDisplayOrientation <- DMDO.DMDO_DEFAULT
+                                        
+                                        // Smart positioning - find a good position for the display
+                                        let (posX, posY) = 
+                                            try
+                                                // Get current active displays to find a good position
+                                                let activeMonitors = getActiveMonitorInfo()
+                                                if activeMonitors.Count > 0 then
+                                                    // Find the rightmost display and place our display to its right
+                                                    let rightmostX = 
+                                                        activeMonitors
+                                                        |> Map.toSeq
+                                                        |> Seq.map (fun (_, monitor) -> monitor.rcMonitor.right)
+                                                        |> Seq.max
+                                                    (rightmostX, 0)
+                                                else
+                                                    // No active displays found, use default position
+                                                    (0, 0)
+                                            with
+                                            | _ -> 
+                                                printfn "[DEBUG] Could not determine smart position, using default"
+                                                (0, 0)
+                                        
+                                        devMode.dmPositionX <- posX
+                                        devMode.dmPositionY <- posY
+                                        
+                                        printfn "[DEBUG] Positioning display at (%d, %d)" posX posY
+                                    
+                                        // Set all required fields for enabling
+                                        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
+                                        // DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY | DM_POSITION
+                                        
+                                        // Apply the display settings
+                                        printfn "[DEBUG] Calling ChangeDisplaySettingsEx to enable display..."
+                                        let changeResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                                        
+                                        if changeResult = DISP.DISP_CHANGE_SUCCESSFUL then
+                                            printfn "[DEBUG] SUCCESS: Display %s enabled via ChangeDisplaySettingsEx!" displayId
+                                            Ok ()
+                                        else
+                                            let errorMsg = match changeResult with
+                                                           | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
+                                                           | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed"
+                                                           | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                                           | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
+                                                           | x when x = DISP.DISP_CHANGE_NOTUPDATED -> "Unable to update registry"
+                                                           | x when x = DISP.DISP_CHANGE_RESTART -> "Restart required"
+                                                           | _ -> sprintf "Unknown error code: %d" changeResult
+                                            printfn "[DEBUG] ERROR: ChangeDisplaySettingsEx failed: %s" errorMsg
+                                            Error (sprintf "Failed to enable display %s: %s" displayId errorMsg)
+                                    else
+                                        printfn "[DEBUG] ERROR: No display modes available for %s" displayId
+                                        Error (sprintf "No display modes available for %s" displayId)
+                else
+                    // Disable display - use only active paths and exclude the target
+                    printfn "[DEBUG] Getting active display paths to disable one..."
+                    
+                    // Get only active display paths
+                    match getDisplayPaths false with
+                    | Error err ->
+                        printfn "[DEBUG] Failed to get active display paths: %s" err
+                        Error (sprintf "Failed to get active display configuration: %s" err)
+                    | Ok (activePathArray, activeModeArray, activePathCount, activeModeCount) ->
+                        printfn "[DEBUG] Got %d active paths" activePathCount
+                        
+                        // Find the path for our target display in active paths
+                        match findDisplayPath displayId activePathArray activePathCount with
+                        | Error err ->
+                            printfn "[DEBUG] Could not find display in active paths (may already be disabled): %s" err
+                            Ok () // Already disabled
+                        | Ok (targetPath, pathIndex) ->
+                            printfn "[DEBUG] Found active display at path index %d" pathIndex
+                            
+                            // Save display state before disabling
+                            printfn "[DEBUG] Saving display state before disabling..."
+                            let stateSaved = saveDisplayState displayId
+                            if stateSaved then
+                                printfn "[DEBUG] Display state saved successfully"
+                            else
+                                printfn "[DEBUG] Warning: Failed to save display state, continuing with disable"
+                            
+                            // Method 1: Try to disable by clearing active flag first
+                            let mutable updatedPath = activePathArray.[pathIndex]
+                            updatedPath.flags <- updatedPath.flags &&& ~~~DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
+                            activePathArray.[pathIndex] <- updatedPath
+                            
+                            printfn "[DEBUG] Attempting to disable by clearing DISPLAYCONFIG_PATH_ACTIVE flag..."
+                            let clearFlagResult = SetDisplayConfig(activePathCount, activePathArray, activeModeCount, activeModeArray,
+                                                                 SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES)
+                            
+                            if clearFlagResult = ERROR.ERROR_SUCCESS then
+                                printfn "[DEBUG] SUCCESS: Display disabled by clearing active flag!"
+                                Ok ()
+                            else
+                                printfn "[DEBUG] Clearing active flag failed (%d), trying path removal..." clearFlagResult
+                                
+                                // Method 2: Remove the display path entirely from the configuration
+                                if activePathCount > 1u then
+                                    // Create new arrays without the target display path
+                                    let newPathArray = 
+                                        if pathIndex = 0 then
+                                            Array.sub activePathArray 1 (int activePathCount - 1)
+                                        elif pathIndex = int activePathCount - 1 then
+                                            Array.sub activePathArray 0 pathIndex
+                                        else
+                                            let beforeTarget = Array.sub activePathArray 0 pathIndex
+                                            let afterTarget = Array.sub activePathArray (pathIndex + 1) (int activePathCount - pathIndex - 1)
+                                            Array.append beforeTarget afterTarget
+                                    
+                                    let newPathCount = activePathCount - 1u
+                                    
+                                    // Keep all modes as Windows will ignore unused ones
+                                    let newModeArray = activeModeArray
+                                    let newModeCount = activeModeCount
+                                    
+                                    printfn "[DEBUG] Removing display path - new configuration has %d paths (was %d)" newPathCount activePathCount
+                                    
+                                    // Apply the configuration without the disabled display
+                                    let setResult = SetDisplayConfig(newPathCount, newPathArray, newModeCount, newModeArray, 
+                                                                   SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES)
+                                    
+                                    if setResult = ERROR.ERROR_SUCCESS then
+                                        printfn "[DEBUG] SUCCESS: Display %s disabled via path removal!" displayId
+                                        Ok ()
+                                    else
+                                        let errorMsg = match setResult with
+                                                       | x when x = ERROR.ERROR_INVALID_PARAMETER -> "Invalid parameter"
+                                                       | x when x = ERROR.ERROR_NOT_SUPPORTED -> "Operation not supported"
+                                                       | x when x = ERROR.ERROR_ACCESS_DENIED -> "Access denied"
+                                                       | x when x = ERROR.ERROR_GEN_FAILURE -> "General failure"
+                                                       | _ -> sprintf "Unknown error code: %d" setResult
+                                        printfn "[DEBUG] ERROR: Failed to disable display: %s" errorMsg
+                                        Error (sprintf "Failed to disable display %s: %s" displayId errorMsg)
+                                else
+                                    printfn "[DEBUG] ERROR: Cannot disable the last remaining display"
+                                    Error "Cannot disable the last remaining display"
+        with
+        | ex ->
+            printfn "[DEBUG] EXCEPTION in setDisplayEnabled: %s" ex.Message
+            printfn "[DEBUG] Stack trace: %s" ex.StackTrace
+            Error (sprintf "Exception setting display %s enabled state: %s" displayId ex.Message)
+
     // Test display mode temporarily for 15 seconds then revert
     let testDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) onComplete =
         async {
@@ -741,3 +1427,8 @@ module WindowsDisplaySystem =
                 printfn "[DEBUG] EXCEPTION in testDisplayMode: %s" ex.Message
                 onComplete (Error (sprintf "Exception during test: %s" ex.Message))
         }
+    
+    // Initialize the module - load saved display states
+    do
+        printfn "[DEBUG] Initializing WindowsDisplaySystem - loading saved display states..."
+        initializeStateCache()

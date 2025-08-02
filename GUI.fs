@@ -24,13 +24,25 @@ module GUI =
         | Some window ->
             match globalAdapter with
             | Some adapter ->
-                // Re-detect displays to get updated information
+                // Re-detect displays to get updated information, but preserve application-level disabled states
                 printfn "[DEBUG GUI] Refreshing display information..."
                 let freshDisplays = adapter.GetConnectedDisplays()
                 
-                // Update the world with fresh display data
+                // Preserve the application-level IsEnabled state from current world
+                let preservedDisplays = 
+                    freshDisplays |> List.map (fun freshDisplay ->
+                        match Map.tryFind freshDisplay.Id globalWorld.Components.ConnectedDisplays with
+                        | Some existingDisplay ->
+                            // Preserve the application-level IsEnabled state
+                            { freshDisplay with IsEnabled = existingDisplay.IsEnabled }
+                        | None ->
+                            // New display, keep system state
+                            freshDisplay
+                    )
+                
+                // Update the world with preserved display data
                 let mutable updatedComponents = globalWorld.Components
-                for display in freshDisplays do
+                for display in preservedDisplays do
                     updatedComponents <- Components.addDisplay display updatedComponents
                 
                 globalWorld <- { globalWorld with Components = updatedComponents }
@@ -38,7 +50,7 @@ module GUI =
                 // Recreate the UI with updated display info
                 let content = createMainContentPanel globalWorld adapter
                 window.Content <- content
-                printfn "[DEBUG GUI] UI refreshed with %d displays" freshDisplays.Length
+                printfn "[DEBUG GUI] UI refreshed with %d displays" preservedDisplays.Length
             | None -> ()
         | None -> ()
     
@@ -292,14 +304,47 @@ module GUI =
         infoPanel.Children.Add(infoTitle)
         
         let onDisplayToggle displayId isEnabled =
-            let display = currentWorld.Components.ConnectedDisplays.[displayId]
-            let updatedDisplay = { display with IsEnabled = isEnabled }
-            let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
-            currentWorld <- { currentWorld with Components = updatedComponents }
-            globalWorld <- currentWorld
+            printfn "Display toggle requested: %s -> %s" displayId (if isEnabled then "enabled" else "disabled")
             
-            printfn "Display %s %s - updated in data model" displayId (if isEnabled then "enabled" else "disabled")
-            refreshMainWindowContent ()
+            // Try Windows API to actually change the display state
+            match WindowsDisplaySystem.setDisplayEnabled displayId isEnabled with
+            | Ok () ->
+                printfn "Windows API reported success for %s display %s" (if isEnabled then "enabling" else "disabling") displayId
+                
+                // Wait a moment for the change to take effect
+                System.Threading.Thread.Sleep(1000)
+                
+                // Verify the change actually worked by checking if display detection changes
+                printfn "Verifying display state change..."
+                let adapter = PlatformAdapter.create()
+                let freshDisplays = adapter.GetConnectedDisplays()
+                let targetDisplay = freshDisplays |> List.tryFind (fun d -> d.Id = displayId)
+                
+                match targetDisplay with
+                | Some display when display.IsEnabled = isEnabled ->
+                    printfn "SUCCESS: Display %s state verified as %s" displayId (if isEnabled then "enabled" else "disabled")
+                    
+                    // Update the data model since the change was verified
+                    let currentDisplay = currentWorld.Components.ConnectedDisplays.[displayId]
+                    let updatedDisplay = { currentDisplay with IsEnabled = isEnabled }
+                    let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
+                    currentWorld <- { currentWorld with Components = updatedComponents }
+                    globalWorld <- currentWorld
+                    
+                    // Refresh the UI to show the verified change
+                    refreshMainWindowContent ()
+                    
+                | Some display ->
+                    printfn "FAILED: Display %s is still %s (requested %s)" displayId (if display.IsEnabled then "enabled" else "disabled") (if isEnabled then "enabled" else "disabled")
+                    printfn "The Windows API call succeeded but the display state didn't actually change."
+                    
+                | None ->
+                    printfn "WARNING: Could not find display %s in fresh detection" displayId
+                    printfn "The Windows API call succeeded but cannot verify the result."
+                    
+            | Error errorMsg ->
+                printfn "Windows API failed to %s display %s: %s" (if isEnabled then "enable" else "disable") displayId errorMsg
+                printfn "Display state not changed - keeping current UI state."
         
         // Function to update dialog content for a specific display
         let updateDialogForDisplay (dialog: Window) (display: DisplayInfo) =
