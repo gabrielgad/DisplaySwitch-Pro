@@ -28,6 +28,10 @@
     <Compile Include="Theme.fs" />
     <Compile Include="UIComponents.fs" />
     <Compile Include="DisplayCanvas.fs" />
+    <Compile Include="UIState.fs" />
+    <Compile Include="MainContentPanel.fs" />
+    <Compile Include="WindowManager.fs" />
+    <Compile Include="ApplicationRunner.fs" />
     <Compile Include="GUI.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="Program.fs" />
