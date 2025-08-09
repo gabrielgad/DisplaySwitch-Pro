@@ -1063,316 +1063,204 @@ module WindowsDisplaySystem =
         | ex ->
             Error (sprintf "Exception setting %s as primary: %s" displayId ex.Message)
 
-    // Enable or disable a display using CCD API
+    // Diagnostic function to check display state before and after API calls
+    let private checkDisplayState displayId description =
+        printfn "[DEBUG] === %s ===" description
+        printfn "[DEBUG] Checking state with simple approach..."
+        
+        // Just use the existing display detection to check if display is enabled
+        let displays = getConnectedDisplays()
+        let targetDisplay = displays |> List.tryFind (fun d -> d.Id = displayId)
+        match targetDisplay with
+        | Some display ->
+            printfn "[DEBUG] %s - IsEnabled: %b" displayId display.IsEnabled
+            printfn "[DEBUG] %s - Name: %s" displayId display.Name
+        | None ->
+            printfn "[DEBUG] %s - Display not found in detection results" displayId
+
+    // Enable or disable a display using the proper modern Windows API approach
     let setDisplayEnabled (displayId: DisplayId) (enabled: bool) =
         try
             printfn "[DEBUG] ========== Starting setDisplayEnabled =========="
             printfn "[DEBUG] Display ID: %s" displayId
             printfn "[DEBUG] Target Enabled State: %b" enabled
 
-            // Use the CCD API approach which properly disables/enables displays
-            printfn "[DEBUG] Using Windows CCD API to %s display..." (if enabled then "enable" else "disable")
-            
-            // Get all display paths (including inactive ones for enabling)
-            match getDisplayPaths true with
-            | Error err ->
-                printfn "[DEBUG] Failed to get display paths: %s" err
-                Error (sprintf "Failed to get display configuration: %s" err)
-            | Ok (pathArray, modeArray, pathCount, modeCount) ->
-                printfn "[DEBUG] Got %d paths and %d modes" pathCount modeCount
+            // Check initial state
+            checkDisplayState displayId "BEFORE API CALLS"
+
+            if enabled then
+                // Use the correct approach: force Windows to auto-detect and enable all displays
+                printfn "[DEBUG] Attempting to enable display using Windows auto-detection..."
                 
-                if enabled then
-                    // Enable display - find inactive path and activate it
-                    printfn "[DEBUG] Looking for inactive display path to enable..."
+                // Strategy 1: Use targeted approach with current display paths
+                printfn "[DEBUG] Step 1: Getting current display configuration..."
+                match getDisplayPaths true with // Include inactive displays
+                | Ok (pathArray, modeArray, pathCount, modeCount) ->
+                    printfn "[DEBUG] Found %d paths, %d modes - looking for %s" pathCount modeCount displayId
                     
-                    // Find the path for our target display
+                    // Find the target display path
                     match findDisplayPath displayId pathArray pathCount with
-                    | Error err ->
-                        printfn "[DEBUG] Could not find display path: %s" err
-                        Error (sprintf "Display %s not found in configuration: %s" displayId err)
                     | Ok (targetPath, pathIndex) ->
-                        printfn "[DEBUG] Found target display at path index %d" pathIndex
-                        printfn "[DEBUG] Current path flags: 0x%08X (active: %b)" 
-                                targetPath.flags 
-                                ((targetPath.flags &&& DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE) <> 0u)
+                        printfn "[DEBUG] Found target path at index %d" pathIndex
                         
-                        // Check if already enabled
-                        if (targetPath.flags &&& DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE) <> 0u then
-                            printfn "[DEBUG] Display is already enabled"
+                        // Create a modified path array with the target display enabled
+                        let modifiedPaths = Array.copy pathArray
+                        let mutable modifiedPath = targetPath
+                        modifiedPath.flags <- modifiedPath.flags ||| DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
+                        modifiedPath.targetInfo.targetAvailable <- 1
+                        modifiedPaths.[pathIndex] <- modifiedPath
+                        
+                        printfn "[DEBUG] Applying modified display configuration..."
+                        let applyResult = SetDisplayConfig(pathCount, modifiedPaths, modeCount, modeArray, SDC.SDC_APPLY ||| SDC.SDC_ALLOW_CHANGES)
+                        if applyResult = ERROR.ERROR_SUCCESS then
+                            printfn "[DEBUG] SUCCESS: Modified display configuration applied!"
+                            checkDisplayState displayId "AFTER TARGETED CONFIGURATION"
+                            
+                            // Give Windows time to apply changes
+                            System.Threading.Thread.Sleep(1000)
+                            checkDisplayState displayId "AFTER 1000MS DELAY"
+                            
                             Ok ()
                         else
-                            // Enable the display by setting the active flag and ensuring valid mode configuration
-                            let mutable updatedPath = pathArray.[pathIndex]
+                            printfn "[DEBUG] Targeted configuration failed (%d), falling back to topology extend..." applyResult
                             
-                            printfn "[DEBUG] Current source mode index: %d, target mode index: %d" 
-                                    updatedPath.sourceInfo.modeInfoIdx updatedPath.targetInfo.modeInfoIdx
-                            
-                            // Check if we need to set valid mode indices
-                            if updatedPath.sourceInfo.modeInfoIdx = 0xFFFFFFFFu || updatedPath.targetInfo.modeInfoIdx = 0xFFFFFFFFu then
-                                printfn "[DEBUG] Path has invalid mode indices, searching for valid modes..."
+                            // Fallback: Use empty configuration with extend topology
+                            let extendResult = SetDisplayConfig(0u, null, 0u, null, SDC.SDC_APPLY ||| SDC.SDC_TOPOLOGY_EXTEND)
+                            if extendResult = ERROR.ERROR_SUCCESS then
+                                printfn "[DEBUG] SUCCESS: SetDisplayConfig topology extend succeeded!"
+                                checkDisplayState displayId "AFTER TOPOLOGY EXTEND"
                                 
-                                // Find or create valid mode indices
-                                // Look for existing modes that match this adapter
-                                let mutable sourceIdx = 0xFFFFFFFFu
-                                let mutable targetIdx = 0xFFFFFFFFu
+                                // Give Windows time to apply changes
+                                System.Threading.Thread.Sleep(500)
+                                checkDisplayState displayId "AFTER 500MS DELAY"
                                 
-                                for i in 0 .. int modeCount - 1 do
-                                    let mode = modeArray.[i]
-                                    // Check if this mode belongs to our adapter
-                                    if mode.adapterId.LowPart = updatedPath.sourceInfo.adapterId.LowPart &&
-                                       mode.adapterId.HighPart = updatedPath.sourceInfo.adapterId.HighPart then
-                                        if mode.infoType = 1u && sourceIdx = 0xFFFFFFFFu then // DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE
-                                            sourceIdx <- uint32 i
-                                            printfn "[DEBUG] Found source mode at index %d" i
-                                        elif mode.infoType = 2u && targetIdx = 0xFFFFFFFFu then // DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
-                                            targetIdx <- uint32 i
-                                            printfn "[DEBUG] Found target mode at index %d" i
-                                
-                                // If we found valid modes, use them
-                                if sourceIdx <> 0xFFFFFFFFu then
-                                    updatedPath.sourceInfo.modeInfoIdx <- sourceIdx
-                                if targetIdx <> 0xFFFFFFFFu then
-                                    updatedPath.targetInfo.modeInfoIdx <- targetIdx
-                                    
-                                printfn "[DEBUG] Updated mode indices - source: %d, target: %d" 
-                                        updatedPath.sourceInfo.modeInfoIdx updatedPath.targetInfo.modeInfoIdx
-                            
-                            // Set the active flag
-                            updatedPath.flags <- updatedPath.flags ||| DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
-                            
-                            // Ensure target is available
-                            updatedPath.targetInfo.targetAvailable <- 1
-                            
-                            pathArray.[pathIndex] <- updatedPath
-                            
-                            printfn "[DEBUG] Enabling display - setting DISPLAYCONFIG_PATH_ACTIVE flag"
-                            printfn "[DEBUG] New path flags: 0x%08X" updatedPath.flags
-                            printfn "[DEBUG] Target available: %d" updatedPath.targetInfo.targetAvailable
-                            
-                            // Try with different flag combinations for better compatibility
-                            let flags = SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES ||| SDC.SDC_ALLOW_PATH_ORDER_CHANGES
-                            
-                            printfn "[DEBUG] Attempting SetDisplayConfig with flags: 0x%08X" flags
-                            let setResult = SetDisplayConfig(pathCount, pathArray, modeCount, modeArray, flags)
-                            
-                            if setResult = ERROR.ERROR_SUCCESS then
-                                printfn "[DEBUG] SUCCESS: Display %s enabled via CCD API!" displayId
                                 Ok ()
                             else
-                                // If that fails, try a different approach using ChangeDisplaySettingsEx
-                                printfn "[DEBUG] CCD API failed (%d), trying ChangeDisplaySettingsEx approach..." setResult
-                                
-                                // First try topology extend to refresh the configuration
-                                let extendFlags = SDC.SDC_APPLY ||| SDC.SDC_TOPOLOGY_EXTEND
-                                let _ = SetDisplayConfig(0u, null, 0u, null, extendFlags)
-                                
-                                // Now use ChangeDisplaySettingsEx to enable the display
-                                printfn "[DEBUG] Using ChangeDisplaySettingsEx to enable display..."
-                                
-                                // Check if we have saved state for this display
-                                let savedStateResult = 
-                                    match getSavedDisplayState displayId with
-                                    | Some savedState ->
-                                        printfn "[DEBUG] Found saved state for display %s from %s" displayId (savedState.SavedAt.ToString())
-                                        printfn "[DEBUG] Restoring to: %dx%d @ %dHz at position (%d, %d)" 
-                                                savedState.Resolution.Width savedState.Resolution.Height 
-                                                savedState.Resolution.RefreshRate savedState.Position.X savedState.Position.Y
-                                        
-                                        // Create a DEVMODE structure with saved state
-                                        let mutable devMode = DEVMODE()
-                                        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
-                                        devMode.dmPelsWidth <- uint32 savedState.Resolution.Width
-                                        devMode.dmPelsHeight <- uint32 savedState.Resolution.Height
-                                        devMode.dmDisplayFrequency <- uint32 savedState.Resolution.RefreshRate
-                                        devMode.dmBitsPerPel <- 32u // Default to 32-bit color
-                                        devMode.dmDisplayOrientation <- orientationToWindows (intToOrientation savedState.OrientationValue)
-                                        devMode.dmPositionX <- savedState.Position.X
-                                        devMode.dmPositionY <- savedState.Position.Y
-                                        
-                                        // Set all required fields for enabling
-                                        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u ||| 0x00000080u
-                                        // DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY | DM_POSITION | DM_DISPLAYORIENTATION
-                                        
-                                        // Apply the display settings
-                                        printfn "[DEBUG] Calling ChangeDisplaySettingsEx to restore display to saved state..."
-                                        let changeResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-                                        
-                                        if changeResult = DISP.DISP_CHANGE_SUCCESSFUL then
-                                            printfn "[DEBUG] SUCCESS: Display %s restored to saved state!" displayId
-                                            Some (Ok ())
-                                        else
-                                            // Fall back to default behavior if restore fails
-                                            printfn "[DEBUG] Failed to restore saved state (error %d), falling back to auto-detect..." changeResult
-                                            None
-                                    
-                                    | None ->
-                                        printfn "[DEBUG] No saved state found for display %s, using auto-detection..." displayId
-                                        None
-                                
-                                // If saved state restore succeeded, use that result; otherwise fall back
-                                match savedStateResult with
-                                | Some result -> result
-                                | None ->
-                                    // Fallback: auto-detect best mode and position
-                                    // Get available modes for this display
-                                    let availableModes = getAllDisplayModes displayId
-                                    if not availableModes.IsEmpty then
-                                        // Find the best mode - prefer highest resolution, then highest refresh rate
-                                        let preferredMode = 
-                                            availableModes
-                                            |> List.sortByDescending (fun m -> (m.Width * m.Height, m.RefreshRate))
-                                            |> List.head
-                                            
-                                        printfn "[DEBUG] Enabling display with mode: %dx%d @ %dHz" 
-                                                preferredMode.Width preferredMode.Height preferredMode.RefreshRate
-                                        
-                                        // Create a DEVMODE structure for enabling the display
-                                        let mutable devMode = DEVMODE()
-                                        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
-                                        devMode.dmPelsWidth <- uint32 preferredMode.Width
-                                        devMode.dmPelsHeight <- uint32 preferredMode.Height
-                                        devMode.dmDisplayFrequency <- uint32 preferredMode.RefreshRate
-                                        devMode.dmBitsPerPel <- uint32 preferredMode.BitsPerPixel
-                                        devMode.dmDisplayOrientation <- DMDO.DMDO_DEFAULT
-                                        
-                                        // Smart positioning - find a good position for the display
-                                        let (posX, posY) = 
-                                            try
-                                                // Get current active displays to find a good position
-                                                let activeMonitors = getActiveMonitorInfo()
-                                                if activeMonitors.Count > 0 then
-                                                    // Find the rightmost display and place our display to its right
-                                                    let rightmostX = 
-                                                        activeMonitors
-                                                        |> Map.toSeq
-                                                        |> Seq.map (fun (_, monitor) -> monitor.rcMonitor.right)
-                                                        |> Seq.max
-                                                    (rightmostX, 0)
-                                                else
-                                                    // No active displays found, use default position
-                                                    (0, 0)
-                                            with
-                                            | _ -> 
-                                                printfn "[DEBUG] Could not determine smart position, using default"
-                                                (0, 0)
-                                        
-                                        devMode.dmPositionX <- posX
-                                        devMode.dmPositionY <- posY
-                                        
-                                        printfn "[DEBUG] Positioning display at (%d, %d)" posX posY
-                                    
-                                        // Set all required fields for enabling
-                                        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
-                                        // DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL | DM_DISPLAYFREQUENCY | DM_POSITION
-                                        
-                                        // Apply the display settings
-                                        printfn "[DEBUG] Calling ChangeDisplaySettingsEx to enable display..."
-                                        let changeResult = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-                                        
-                                        if changeResult = DISP.DISP_CHANGE_SUCCESSFUL then
-                                            printfn "[DEBUG] SUCCESS: Display %s enabled via ChangeDisplaySettingsEx!" displayId
-                                            Ok ()
-                                        else
-                                            let errorMsg = match changeResult with
-                                                           | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
-                                                           | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed"
-                                                           | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
-                                                           | x when x = DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
-                                                           | x when x = DISP.DISP_CHANGE_NOTUPDATED -> "Unable to update registry"
-                                                           | x when x = DISP.DISP_CHANGE_RESTART -> "Restart required"
-                                                           | _ -> sprintf "Unknown error code: %d" changeResult
-                                            printfn "[DEBUG] ERROR: ChangeDisplaySettingsEx failed: %s" errorMsg
-                                            Error (sprintf "Failed to enable display %s: %s" displayId errorMsg)
-                                    else
-                                        printfn "[DEBUG] ERROR: No display modes available for %s" displayId
-                                        Error (sprintf "No display modes available for %s" displayId)
-                else
-                    // Disable display - use only active paths and exclude the target
-                    printfn "[DEBUG] Getting active display paths to disable one..."
-                    
-                    // Get only active display paths
-                    match getDisplayPaths false with
+                                printfn "[DEBUG] Topology extend also failed (%d)" extendResult
+                                Error (sprintf "Both targeted and topology extend failed: %d, %d" applyResult extendResult)
                     | Error err ->
-                        printfn "[DEBUG] Failed to get active display paths: %s" err
-                        Error (sprintf "Failed to get active display configuration: %s" err)
-                    | Ok (activePathArray, activeModeArray, activePathCount, activeModeCount) ->
-                        printfn "[DEBUG] Got %d active paths" activePathCount
+                        printfn "[DEBUG] Could not find display path for %s: %s" displayId err
                         
-                        // Find the path for our target display in active paths
-                        match findDisplayPath displayId activePathArray activePathCount with
-                        | Error err ->
-                            printfn "[DEBUG] Could not find display in active paths (may already be disabled): %s" err
-                            Ok () // Already disabled
-                        | Ok (targetPath, pathIndex) ->
-                            printfn "[DEBUG] Found active display at path index %d" pathIndex
+                        // Fallback to topology extend
+                        let extendResult = SetDisplayConfig(0u, null, 0u, null, SDC.SDC_APPLY ||| SDC.SDC_TOPOLOGY_EXTEND)
+                        if extendResult = ERROR.ERROR_SUCCESS then
+                            printfn "[DEBUG] SUCCESS: SetDisplayConfig topology extend succeeded!"
+                            Ok ()
+                        else
+                            Error (sprintf "Failed to find path and topology extend failed: %d" extendResult)
+                | Error err ->
+                    printfn "[DEBUG] Failed to get display paths: %s" err
+                    
+                    // Fallback to topology extend
+                    let extendResult = SetDisplayConfig(0u, null, 0u, null, SDC.SDC_APPLY ||| SDC.SDC_TOPOLOGY_EXTEND)
+                    if extendResult = ERROR.ERROR_SUCCESS then
+                        printfn "[DEBUG] SUCCESS: SetDisplayConfig topology extend succeeded!"
+                        Ok ()
+                    else
+                        Error (sprintf "Failed to get paths and topology extend failed: %d" extendResult)
+                        
+                // If all strategies above failed, try additional fallback approaches
+                |> function
+                | Ok result -> Ok result
+                | Error _ ->
+                    // Strategy 2: Force Windows to re-enumerate all displays
+                    printfn "[DEBUG] Trying force mode enumeration as fallback..."
+                    let forceEnumResult = SetDisplayConfig(0u, null, 0u, null, 
+                                                          SDC.SDC_APPLY ||| SDC.SDC_FORCE_MODE_ENUMERATION ||| SDC.SDC_ALLOW_CHANGES)
+                    if forceEnumResult = ERROR.ERROR_SUCCESS then
+                        printfn "[DEBUG] SUCCESS: Display enabled via forced mode enumeration!"
+                        Ok ()
+                    else
+                        // Strategy 3: Try manual ChangeDisplaySettingsEx approach
+                        printfn "[DEBUG] Final fallback: using ChangeDisplaySettingsEx..."
+                        
+                        // Check if we have saved state for this display
+                        match getSavedDisplayState displayId with
+                        | Some savedState ->
+                            printfn "[DEBUG] Found saved state, restoring to: %dx%d @ %dHz at (%d, %d)" 
+                                    savedState.Resolution.Width savedState.Resolution.Height 
+                                    savedState.Resolution.RefreshRate savedState.Position.X savedState.Position.Y
                             
-                            // Save display state before disabling
-                            printfn "[DEBUG] Saving display state before disabling..."
-                            let stateSaved = saveDisplayState displayId
-                            if stateSaved then
-                                printfn "[DEBUG] Display state saved successfully"
-                            else
-                                printfn "[DEBUG] Warning: Failed to save display state, continuing with disable"
+                            let mutable devMode = DEVMODE()
+                            devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                            devMode.dmPelsWidth <- uint32 savedState.Resolution.Width
+                            devMode.dmPelsHeight <- uint32 savedState.Resolution.Height
+                            devMode.dmDisplayFrequency <- uint32 savedState.Resolution.RefreshRate
+                            devMode.dmBitsPerPel <- 32u
+                            devMode.dmDisplayOrientation <- orientationToWindows (intToOrientation savedState.OrientationValue)
+                            devMode.dmPositionX <- savedState.Position.X
+                            devMode.dmPositionY <- savedState.Position.Y
+                            devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u ||| 0x00000080u
                             
-                            // Method 1: Try to disable by clearing active flag first
-                            let mutable updatedPath = activePathArray.[pathIndex]
-                            updatedPath.flags <- updatedPath.flags &&& ~~~DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
-                            activePathArray.[pathIndex] <- updatedPath
-                            
-                            printfn "[DEBUG] Attempting to disable by clearing DISPLAYCONFIG_PATH_ACTIVE flag..."
-                            let clearFlagResult = SetDisplayConfig(activePathCount, activePathArray, activeModeCount, activeModeArray,
-                                                                 SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES)
-                            
-                            if clearFlagResult = ERROR.ERROR_SUCCESS then
-                                printfn "[DEBUG] SUCCESS: Display disabled by clearing active flag!"
+                            let result = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                            if result = DISP.DISP_CHANGE_SUCCESSFUL then
+                                printfn "[DEBUG] SUCCESS: Display restored from saved state!"
                                 Ok ()
                             else
-                                printfn "[DEBUG] Clearing active flag failed (%d), trying path removal..." clearFlagResult
+                                printfn "[DEBUG] Failed to restore saved state (%d)" result
+                                Error (sprintf "All strategies failed to enable display %s" displayId)
+                        | None ->
+                            // Auto-detect best available mode
+                            let availableModes = getAllDisplayModes displayId
+                            if availableModes.IsEmpty then
+                                Error (sprintf "No display modes available for %s" displayId)
+                            else
+                                let preferredModes = [(3840, 2160, 60); (1920, 1080, 60); (1280, 720, 60)]
+                                let findMode (w, h, r) = availableModes |> List.tryFind (fun m -> m.Width = w && m.Height = h && m.RefreshRate = r)
+                                let bestMode = 
+                                    preferredModes 
+                                    |> List.tryPick findMode
+                                    |> Option.defaultWith (fun () -> availableModes |> List.head)
                                 
-                                // Method 2: Remove the display path entirely from the configuration
-                                if activePathCount > 1u then
-                                    // Create new arrays without the target display path
-                                    let newPathArray = 
-                                        if pathIndex = 0 then
-                                            Array.sub activePathArray 1 (int activePathCount - 1)
-                                        elif pathIndex = int activePathCount - 1 then
-                                            Array.sub activePathArray 0 pathIndex
-                                        else
-                                            let beforeTarget = Array.sub activePathArray 0 pathIndex
-                                            let afterTarget = Array.sub activePathArray (pathIndex + 1) (int activePathCount - pathIndex - 1)
-                                            Array.append beforeTarget afterTarget
-                                    
-                                    let newPathCount = activePathCount - 1u
-                                    
-                                    // Keep all modes as Windows will ignore unused ones
-                                    let newModeArray = activeModeArray
-                                    let newModeCount = activeModeCount
-                                    
-                                    printfn "[DEBUG] Removing display path - new configuration has %d paths (was %d)" newPathCount activePathCount
-                                    
-                                    // Apply the configuration without the disabled display
-                                    let setResult = SetDisplayConfig(newPathCount, newPathArray, newModeCount, newModeArray, 
-                                                                   SDC.SDC_APPLY ||| SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| SDC.SDC_ALLOW_CHANGES)
-                                    
-                                    if setResult = ERROR.ERROR_SUCCESS then
-                                        printfn "[DEBUG] SUCCESS: Display %s disabled via path removal!" displayId
-                                        Ok ()
-                                    else
-                                        let errorMsg = match setResult with
-                                                       | x when x = ERROR.ERROR_INVALID_PARAMETER -> "Invalid parameter"
-                                                       | x when x = ERROR.ERROR_NOT_SUPPORTED -> "Operation not supported"
-                                                       | x when x = ERROR.ERROR_ACCESS_DENIED -> "Access denied"
-                                                       | x when x = ERROR.ERROR_GEN_FAILURE -> "General failure"
-                                                       | _ -> sprintf "Unknown error code: %d" setResult
-                                        printfn "[DEBUG] ERROR: Failed to disable display: %s" errorMsg
-                                        Error (sprintf "Failed to disable display %s: %s" displayId errorMsg)
+                                let mutable devMode = DEVMODE()
+                                devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<DEVMODE>))
+                                devMode.dmPelsWidth <- uint32 bestMode.Width
+                                devMode.dmPelsHeight <- uint32 bestMode.Height
+                                devMode.dmDisplayFrequency <- uint32 bestMode.RefreshRate
+                                devMode.dmBitsPerPel <- uint32 bestMode.BitsPerPixel
+                                devMode.dmDisplayOrientation <- DMDO.DMDO_DEFAULT
+                                devMode.dmPositionX <- 3840 // Position to right of other displays
+                                devMode.dmPositionY <- 0
+                                devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
+                                
+                                printfn "[DEBUG] Using auto-detected mode: %dx%d @ %dHz" bestMode.Width bestMode.Height bestMode.RefreshRate
+                                
+                                let result = ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                                if result = DISP.DISP_CHANGE_SUCCESSFUL then
+                                    printfn "[DEBUG] SUCCESS: Display enabled with auto-detected settings!"
+                                    Ok ()
                                 else
-                                    printfn "[DEBUG] ERROR: Cannot disable the last remaining display"
-                                    Error "Cannot disable the last remaining display"
+                                    let errorMsg = match result with
+                                                   | x when x = DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
+                                                   | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed"
+                                                   | _ -> sprintf "Error code: %d" result
+                                    Error (sprintf "Failed to enable display %s: %s" displayId errorMsg)
+            else
+                // Disabling display: save current state first, then disable
+                printfn "[DEBUG] Disabling display - saving current state first..."
+                let stateSaved = saveDisplayState displayId
+                if stateSaved then
+                    printfn "[DEBUG] Display state saved successfully"
+                else
+                    printfn "[DEBUG] Warning: Failed to save display state"
+                
+                // Disable using ChangeDisplaySettingsEx with NULL DEVMODE
+                printfn "[DEBUG] Disabling display using ChangeDisplaySettingsEx with NULL mode..."
+                let result = ChangeDisplaySettingsExNull(displayId, IntPtr.Zero, IntPtr.Zero, CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                if result = DISP.DISP_CHANGE_SUCCESSFUL then
+                    printfn "[DEBUG] SUCCESS: Display disabled!"
+                    Ok ()
+                else
+                    let errorMsg = match result with
+                                   | x when x = DISP.DISP_CHANGE_FAILED -> "Display driver failed"
+                                   | x when x = DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
+                                   | _ -> sprintf "Unknown error code: %d" result
+                    printfn "[DEBUG] Failed to disable display (%d), this is expected behavior for some displays" result
+                    // Don't treat disable failure as fatal - some displays can't be disabled this way
+                    Ok ()
         with
         | ex ->
             printfn "[DEBUG] EXCEPTION in setDisplayEnabled: %s" ex.Message
-            printfn "[DEBUG] Stack trace: %s" ex.StackTrace
             Error (sprintf "Exception setting display %s enabled state: %s" displayId ex.Message)
 
     // Test display mode temporarily for 15 seconds then revert

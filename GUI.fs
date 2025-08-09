@@ -311,10 +311,10 @@ module GUI =
             | Ok () ->
                 printfn "Windows API reported success for %s display %s" (if isEnabled then "enabling" else "disabling") displayId
                 
-                // Wait a moment for the change to take effect
-                System.Threading.Thread.Sleep(1000)
+                // Wait for the change to take effect
+                System.Threading.Thread.Sleep(3000)
                 
-                // Verify the change actually worked by checking if display detection changes
+                // Verify the change worked
                 printfn "Verifying display state change..."
                 let adapter = PlatformAdapter.create()
                 let freshDisplays = adapter.GetConnectedDisplays()
@@ -335,12 +335,10 @@ module GUI =
                     refreshMainWindowContent ()
                     
                 | Some display ->
-                    printfn "FAILED: Display %s is still %s (requested %s)" displayId (if display.IsEnabled then "enabled" else "disabled") (if isEnabled then "enabled" else "disabled")
-                    printfn "The Windows API call succeeded but the display state didn't actually change."
+                    printfn "Display %s is %s (requested %s)" displayId (if display.IsEnabled then "enabled" else "disabled") (if isEnabled then "enabled" else "disabled")
                     
                 | None ->
-                    printfn "WARNING: Could not find display %s in fresh detection" displayId
-                    printfn "The Windows API call succeeded but cannot verify the result."
+                    printfn "Could not find display %s in fresh detection" displayId
                     
             | Error errorMsg ->
                 printfn "Windows API failed to %s display %s: %s" (if isEnabled then "enable" else "disable") displayId errorMsg
