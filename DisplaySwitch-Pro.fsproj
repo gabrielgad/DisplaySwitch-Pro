@@ -17,6 +17,11 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Components.fs" />
+    <Compile Include="WindowsAPI.fs" />
+    <Compile Include="DisplayStateCache.fs" />
+    <Compile Include="DisplayConfigurationAPI.fs" />
+    <Compile Include="DisplayDetection.fs" />
+    <Compile Include="DisplayControl.fs" />
     <Compile Include="WindowsDisplaySystem.fs" />
     <Compile Include="PlatformAdapter.fs" />
     <Compile Include="Systems.fs" />
