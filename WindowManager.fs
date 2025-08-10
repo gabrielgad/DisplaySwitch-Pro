@@ -111,10 +111,13 @@ module WindowManager =
         window.Title <- "DisplaySwitch-Pro"
         window.Width <- 1200.0
         window.Height <- 700.0
+        window.MinWidth <- 900.0
+        window.MinHeight <- 600.0
         
         window.TransparencyLevelHint <- [WindowTransparencyLevel.AcrylicBlur; WindowTransparencyLevel.Blur]
         window.Background <- Brushes.Transparent
         window.ExtendClientAreaToDecorationsHint <- false
+        window.CanResize <- true
         
         // Set window reference in UI state
         UIState.setMainWindow window

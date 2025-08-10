@@ -207,52 +207,236 @@ module MainContentPanel =
         // Display canvas is already a ScrollViewer from DisplayCanvas.createDisplayCanvas
         displayCanvas.Background <- SolidColorBrush(colors.Background) :> IBrush
         
+        // Display toggle handler
+        let onDisplayToggle (displayId: DisplayId) (enabled: bool) =
+            printfn "Toggle display %s to %b" displayId enabled
+            match Map.tryFind displayId currentWorld.Components.ConnectedDisplays with
+            | Some display ->
+                let updatedDisplay = { display with IsEnabled = enabled }
+                let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
+                currentWorld <- { currentWorld with Components = updatedComponents }
+                UIState.updateWorld currentWorld
+                
+                // Apply to physical display
+                match WindowsDisplaySystem.setDisplayEnabled displayId enabled with
+                | Ok () -> 
+                    printfn "Successfully toggled display %s" displayId
+                    refreshMainWindowContent ()
+                | Error err -> 
+                    printfn "Failed to toggle display %s: %s" displayId err
+            | None -> 
+                printfn "Display %s not found" displayId
+
+        // Display settings handler
+        let onSettingsClick (display: DisplayInfo) =
+            printfn "Opening settings for display: %s" display.Name
+            let onApply = fun displayId mode orientation isPrimary ->
+                printfn "Applying settings: %dx%d@%dHz, orientation: %A, primary: %b" 
+                        mode.Width mode.Height mode.RefreshRate orientation isPrimary
+                
+                // Apply the settings
+                match WindowsDisplaySystem.applyDisplayMode displayId mode orientation with
+                | Ok () ->
+                    if isPrimary then
+                        match WindowsDisplaySystem.setPrimaryDisplay displayId with
+                        | Ok () -> printfn "Successfully set as primary"
+                        | Error err -> printfn "Failed to set as primary: %s" err
+                    
+                    // Update the display info and refresh UI
+                    match Map.tryFind displayId currentWorld.Components.ConnectedDisplays with
+                    | Some existingDisplay ->
+                        let updatedDisplay = { 
+                            existingDisplay with 
+                                Resolution = { Width = mode.Width; Height = mode.Height; RefreshRate = mode.RefreshRate }
+                                Orientation = orientation
+                                IsPrimary = isPrimary 
+                        }
+                        let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
+                        currentWorld <- { currentWorld with Components = updatedComponents }
+                        UIState.updateWorld currentWorld
+                        refreshMainWindowContent ()
+                    | None -> ()
+                | Error err ->
+                    printfn "Failed to apply display mode: %s" err
+            
+            let onClose = fun () -> ()
+            let dialog = UIComponents.createResolutionPickerDialog display onApply onClose
+                
+            match UIState.getMainWindow() with
+            | Some mainWindow -> dialog.ShowDialog(mainWindow) |> ignore
+            | None -> ()
+
+        // Create display list view with handlers
+        let displayListView = UIComponents.createDisplayListView displays onDisplayToggle onSettingsClick
+        
         // Create preset panel with delete handler
         let onPresetDelete (presetName: string) = printfn "Delete preset: %s" presetName
         let presetPanel = UIComponents.createPresetPanel presets onPresetClick onPresetDelete
         
-        // Split the UI: Display canvas on left, controls on right
+        // Split the UI: 3 columns - display info (left), display canvas (center), presets (right)
         let leftColumn = ColumnDefinition()
-        leftColumn.Width <- GridLength(1.0, GridUnitType.Star)
+        leftColumn.Width <- GridLength(320.0, GridUnitType.Pixel)
+        
+        let centerColumn = ColumnDefinition()
+        centerColumn.Width <- GridLength(1.0, GridUnitType.Star)
         
         let rightColumn = ColumnDefinition() 
         rightColumn.Width <- GridLength(300.0, GridUnitType.Pixel)
         
         let mainGrid = Grid()
         mainGrid.ColumnDefinitions.Add(leftColumn)
+        mainGrid.ColumnDefinitions.Add(centerColumn)
         mainGrid.ColumnDefinitions.Add(rightColumn)
         mainGrid.Background <- SolidColorBrush(colors.Background) :> IBrush
         
-        // Add display canvas to left column
-        Grid.SetColumn(displayCanvas, 0)
-        mainGrid.Children.Add(displayCanvas)
+        // LEFT COLUMN: Display Info with header and scrollable content
+        let leftContainer = Border()
+        leftContainer.Background <- SolidColorBrush(colors.Surface) :> IBrush
+        leftContainer.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        leftContainer.BorderThickness <- Thickness(0.0, 0.0, 1.0, 0.0)
+        leftContainer.CornerRadius <- CornerRadius(12.0, 0.0, 0.0, 12.0)
+        leftContainer.Margin <- Thickness(10.0, 10.0, 0.0, 10.0)
         
-        // Create right panel with presets (no separate controls panel from DisplayCanvas)
-        let rightPanel = StackPanel()
-        rightPanel.Orientation <- Orientation.Vertical
-        rightPanel.Margin <- Thickness(10.0, 10.0, 10.0, 0.0)
-        rightPanel.Children.Add(presetPanel)
+        let leftContent = DockPanel()
+        leftContent.LastChildFill <- true
         
-        // Add right panel to right column  
-        Grid.SetColumn(rightPanel, 1)
-        mainGrid.Children.Add(rightPanel)
+        // Left header
+        let leftHeader = Border()
+        leftHeader.Background <- SolidColorBrush(colors.PrimaryDark) :> IBrush
+        leftHeader.Height <- 45.0
+        leftHeader.Padding <- Thickness(15.0, 12.0)
+        leftHeader.CornerRadius <- CornerRadius(12.0, 0.0, 0.0, 0.0)
+        DockPanel.SetDock(leftHeader, Dock.Top)
         
-        // Acrylic background effect
+        let leftHeaderText = TextBlock()
+        leftHeaderText.Text <- "Display Information"
+        leftHeaderText.FontSize <- 14.0
+        leftHeaderText.FontWeight <- FontWeight.SemiBold
+        leftHeaderText.Foreground <- Brushes.White
+        leftHeaderText.VerticalAlignment <- VerticalAlignment.Center
+        leftHeader.Child <- leftHeaderText
+        leftContent.Children.Add(leftHeader)
+        
+        // Left scrollable content
+        let leftScrollViewer = ScrollViewer()
+        leftScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        leftScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        leftScrollViewer.Content <- displayListView
+        leftContent.Children.Add(leftScrollViewer)
+        
+        leftContainer.Child <- leftContent
+        Grid.SetColumn(leftContainer, 0)
+        mainGrid.Children.Add(leftContainer)
+        
+        // CENTER COLUMN: Display Canvas with header
+        let centerContainer = Border()
+        centerContainer.Background <- SolidColorBrush(colors.Background) :> IBrush
+        centerContainer.Margin <- Thickness(0.0, 10.0, 0.0, 10.0)
+        
+        let centerContent = DockPanel()
+        centerContent.LastChildFill <- true
+        
+        // Center header
+        let centerHeader = Border()
+        centerHeader.Background <- SolidColorBrush(colors.Primary) :> IBrush
+        centerHeader.Height <- 45.0
+        centerHeader.Padding <- Thickness(15.0, 12.0)
+        DockPanel.SetDock(centerHeader, Dock.Top)
+        
+        let centerHeaderText = TextBlock()
+        centerHeaderText.Text <- "Display Layout"
+        centerHeaderText.FontSize <- 14.0
+        centerHeaderText.FontWeight <- FontWeight.SemiBold
+        centerHeaderText.Foreground <- Brushes.White
+        centerHeaderText.VerticalAlignment <- VerticalAlignment.Center
+        centerHeader.Child <- centerHeaderText
+        centerContent.Children.Add(centerHeader)
+        
+        // Center canvas content
+        centerContent.Children.Add(displayCanvas)
+        centerContainer.Child <- centerContent
+        Grid.SetColumn(centerContainer, 1)
+        mainGrid.Children.Add(centerContainer)
+        
+        // RIGHT COLUMN: Presets with header and scrollable content
+        let rightContainer = Border()
+        rightContainer.Background <- SolidColorBrush(colors.Surface) :> IBrush
+        rightContainer.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        rightContainer.BorderThickness <- Thickness(1.0, 0.0, 0.0, 0.0)
+        rightContainer.CornerRadius <- CornerRadius(0.0, 12.0, 12.0, 0.0)
+        rightContainer.Margin <- Thickness(0.0, 10.0, 10.0, 10.0)
+        
+        let rightContent = DockPanel()
+        rightContent.LastChildFill <- true
+        
+        // Right header
+        let rightHeader = Border()
+        rightHeader.Background <- SolidColorBrush(colors.Secondary) :> IBrush
+        rightHeader.Height <- 45.0
+        rightHeader.Padding <- Thickness(15.0, 12.0)
+        rightHeader.CornerRadius <- CornerRadius(0.0, 12.0, 0.0, 0.0)
+        DockPanel.SetDock(rightHeader, Dock.Top)
+        
+        let rightHeaderText = TextBlock()
+        rightHeaderText.Text <- "Presets"
+        rightHeaderText.FontSize <- 14.0
+        rightHeaderText.FontWeight <- FontWeight.SemiBold
+        rightHeaderText.Foreground <- Brushes.White
+        rightHeaderText.VerticalAlignment <- VerticalAlignment.Center
+        rightHeader.Child <- rightHeaderText
+        rightContent.Children.Add(rightHeader)
+        
+        // Right scrollable content
+        let rightScrollViewer = ScrollViewer()
+        rightScrollViewer.VerticalScrollBarVisibility <- ScrollBarVisibility.Auto
+        rightScrollViewer.HorizontalScrollBarVisibility <- ScrollBarVisibility.Disabled
+        rightScrollViewer.Content <- presetPanel
+        rightContent.Children.Add(rightScrollViewer)
+        
+        rightContainer.Child <- rightContent
+        Grid.SetColumn(rightContainer, 2)
+        mainGrid.Children.Add(rightContainer)
+        
+        // Acrylic background effect with modern styling
         let acrylicBorder = Border()
         acrylicBorder.Background <- SolidColorBrush(colors.Background) :> IBrush
+        acrylicBorder.CornerRadius <- CornerRadius(12.0)
+        acrylicBorder.BorderBrush <- SolidColorBrush(Color.FromArgb(60uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush
+        acrylicBorder.BorderThickness <- Thickness(1.0)
+        acrylicBorder.Margin <- Thickness(8.0)
         acrylicBorder.Child <- mainGrid
         
         // Status bar at bottom
         let statusBar = Border()
-        statusBar.Height <- 24.0
-        statusBar.Background <- SolidColorBrush(Color.FromArgb(40uy, colors.Surface.R, colors.Surface.G, colors.Surface.B)) :> IBrush
+        statusBar.Height <- 35.0
+        statusBar.Background <- SolidColorBrush(Color.FromArgb(90uy, colors.Surface.R, colors.Surface.G, colors.Surface.B)) :> IBrush
         statusBar.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
         statusBar.BorderThickness <- Thickness(0.0, 1.0, 0.0, 0.0)
+        statusBar.CornerRadius <- CornerRadius(0.0, 0.0, 12.0, 12.0)
         
         let statusPanel = DockPanel()
-        statusPanel.Margin <- Thickness(12.0, 4.0, 12.0, 4.0)
+        statusPanel.LastChildFill <- true
+        statusPanel.Margin <- Thickness(10.0, 5.0, 10.0, 5.0)
         
-        // App name/version (left side)
+        // Theme toggle button (left side)
+        let themeToggleButton = Button()
+        themeToggleButton.Content <- if Theme.currentTheme = Theme.Light then "🌙 Dark" else "☀️ Light"
+        themeToggleButton.Width <- 80.0
+        themeToggleButton.Height <- 25.0
+        themeToggleButton.CornerRadius <- CornerRadius(12.0)
+        themeToggleButton.FontSize <- 11.0
+        themeToggleButton.Background <- SolidColorBrush(colors.Secondary) :> IBrush
+        themeToggleButton.Foreground <- Brushes.White
+        themeToggleButton.BorderThickness <- Thickness(0.0)
+        ToolTip.SetTip(themeToggleButton, "Toggle between light and dark theme")
+        themeToggleButton.Click.Add(fun _ ->
+            Theme.toggleTheme() |> ignore
+            refreshMainWindowContent ()
+        )
+        DockPanel.SetDock(themeToggleButton, Dock.Left)
+        statusPanel.Children.Add(themeToggleButton)
+        
+        // App name/version (left-center)
         let appInfo = TextBlock()
         appInfo.Text <- "DisplaySwitch-Pro v1.0"
         appInfo.FontSize <- 11.0
@@ -260,6 +444,7 @@ module MainContentPanel =
         appInfo.VerticalAlignment <- VerticalAlignment.Center
         appInfo.HorizontalAlignment <- HorizontalAlignment.Left
         appInfo.Opacity <- 0.6
+        appInfo.Margin <- Thickness(10.0, 0.0, 0.0, 0.0)
         statusPanel.Children.Add(appInfo)
         
         // Status text (center/right side)
