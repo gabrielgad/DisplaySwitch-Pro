@@ -20,8 +20,8 @@ module DisplayStateCache =
         SavedAt: System.DateTime
     }
     
-    // In-memory cache of display states
-    let private displayStateCache = Dictionary<string, DisplayStateCache>()
+    // Immutable in-memory cache of display states
+    let private displayStateCache = ref Map.empty<string, DisplayStateCache>
     
     // File path for persisting display states
     let private getStateCacheFilePath() =
@@ -37,9 +37,9 @@ module DisplayStateCache =
             if File.Exists(filePath) then
                 let json = File.ReadAllText(filePath)
                 let states = JsonSerializer.Deserialize<DisplayStateCache[]>(json)
-                displayStateCache.Clear()
-                for state in states do
-                    displayStateCache.[state.DisplayId] <- state
+                displayStateCache := 
+                    states 
+                    |> Array.fold (fun acc state -> Map.add state.DisplayId state acc) Map.empty
                 printfn "[DEBUG] Loaded %d display states from cache" states.Length
         with
         | ex -> 
@@ -49,7 +49,7 @@ module DisplayStateCache =
     let private saveDisplayStates() =
         try
             let filePath = getStateCacheFilePath()
-            let states = displayStateCache.Values |> Seq.toArray
+            let states = (!displayStateCache) |> Map.values |> Seq.toArray
             let options = JsonSerializerOptions(WriteIndented = true)
             let json = JsonSerializer.Serialize(states, options)
             File.WriteAllText(filePath, json)
@@ -114,7 +114,7 @@ module DisplayStateCache =
                     SavedAt = System.DateTime.Now
                 }
                 
-                displayStateCache.[displayId] <- state
+                displayStateCache := Map.add displayId state (!displayStateCache)
                 saveDisplayStates() // Persist to file
                 
                 printfn "[DEBUG] Saved display state for %s: %dx%d @ %dHz at (%d, %d)" 
@@ -131,9 +131,7 @@ module DisplayStateCache =
     
     // Get saved display state from cache
     let getSavedDisplayState (displayId: string) =
-        match displayStateCache.TryGetValue(displayId) with
-        | true, state -> Some state
-        | false, _ -> None
+        Map.tryFind displayId (!displayStateCache)
     
     // Initialize the cache - load saved states
     let initialize() =

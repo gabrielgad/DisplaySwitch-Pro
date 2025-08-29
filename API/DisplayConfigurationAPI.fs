@@ -6,35 +6,41 @@ open WindowsAPI
 // CCD (Connecting and Configuring Displays) API helper functions
 module DisplayConfigurationAPI =
     
+    // Helper functions for functional API calls
+    let private getBufferSizes includeInactive =
+        let flags = if includeInactive then WindowsAPI.QDC.QDC_ALL_PATHS else WindowsAPI.QDC.QDC_ONLY_ACTIVE_PATHS
+        let mutable pathCount = 0u
+        let mutable modeCount = 0u
+        let sizeResult = WindowsAPI.GetDisplayConfigBufferSizes(flags, &pathCount, &modeCount)
+        (sizeResult, pathCount, modeCount, flags)
+    
+    let private queryDisplayConfiguration flags pathCount modeCount =
+        let pathArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_PATH_INFO> (int pathCount)
+        let modeArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_MODE_INFO> (int modeCount)
+        let mutable actualPathCount = pathCount
+        let mutable actualModeCount = modeCount
+        let queryResult = WindowsAPI.QueryDisplayConfig(flags, &actualPathCount, pathArray, &actualModeCount, modeArray, IntPtr.Zero)
+        (queryResult, pathArray, modeArray, actualPathCount, actualModeCount)
+
     // Get display paths from Windows CCD API
     let getDisplayPaths includeInactive =
         try
-            let mutable pathCount = 0u
-            let mutable modeCount = 0u
-            
-            // Get the required buffer sizes
-            let flags = if includeInactive then WindowsAPI.QDC.QDC_ALL_PATHS else WindowsAPI.QDC.QDC_ONLY_ACTIVE_PATHS
-            let sizeResult = WindowsAPI.GetDisplayConfigBufferSizes(flags, &pathCount, &modeCount)
+            let (sizeResult, pathCount, modeCount, flags) = getBufferSizes includeInactive
             
             if sizeResult <> WindowsAPI.ERROR.ERROR_SUCCESS then
                 printfn "[DEBUG] GetDisplayConfigBufferSizes failed with error: %d" sizeResult
                 Error (sprintf "Failed to get display config buffer sizes: %d" sizeResult)
             else
                 printfn "[DEBUG] Buffer sizes - Paths: %d, Modes: %d" pathCount modeCount
-                
-                // Allocate arrays
-                let pathArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_PATH_INFO> (int pathCount)
-                let modeArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_MODE_INFO> (int modeCount)
-                
-                // Query the display configuration
-                let queryResult = WindowsAPI.QueryDisplayConfig(flags, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
+                let (queryResult, pathArray, modeArray, actualPathCount, actualModeCount) = 
+                    queryDisplayConfiguration flags pathCount modeCount
                 
                 if queryResult <> WindowsAPI.ERROR.ERROR_SUCCESS then
                     printfn "[DEBUG] QueryDisplayConfig failed with error: %d" queryResult
                     Error (sprintf "Failed to query display config: %d" queryResult)
                 else
-                    printfn "[DEBUG] Successfully queried %d paths and %d modes" pathCount modeCount
-                    Ok (pathArray, modeArray, pathCount, modeCount)
+                    printfn "[DEBUG] Successfully queried %d paths and %d modes" actualPathCount actualModeCount
+                    Ok (pathArray, modeArray, actualPathCount, actualModeCount)
         with
         | ex ->
             printfn "[DEBUG] Exception in getDisplayPaths: %s" ex.Message
@@ -57,19 +63,18 @@ module DisplayConfigurationAPI =
                 printfn "[DEBUG] Looking for display %d in %d paths" displayNum pathCount
                 
                 // Strategy 1: Look for paths by source ID (most reliable)
-                let mutable foundPath = None
-                let mutable foundIndex = -1
+                let foundPathResult = 
+                    [0 .. int pathCount - 1]
+                    |> List.tryFind (fun i -> 
+                        let path = paths.[i]
+                        if int path.sourceInfo.id = (displayNum - 1) then
+                            printfn "[DEBUG] Found path with source ID %d matching display %d" path.sourceInfo.id displayNum
+                            true
+                        else false)
+                    |> Option.map (fun i -> (paths.[i], i))
                 
-                // Try to find path where source ID matches display number - 1 (0-based)
-                for i in 0 .. int pathCount - 1 do
-                    let path = paths.[i]
-                    if int path.sourceInfo.id = (displayNum - 1) then
-                        printfn "[DEBUG] Found path with source ID %d matching display %d" path.sourceInfo.id displayNum
-                        foundPath <- Some path
-                        foundIndex <- i
-                
-                match foundPath with
-                | Some path -> 
+                match foundPathResult with
+                | Some (path, foundIndex) -> 
                     printfn "[DEBUG] Mapped display %s to path index %d (source ID match)" displayId foundIndex
                     Ok (path, foundIndex)
                 | None ->

@@ -65,26 +65,38 @@ module DisplayDetection =
             System.Collections.Generic.List<string>()
     
     // Get all display devices (including inactive ones)
-    let private getAllDisplayDevices() =
-        let mutable devices = []
-        let mutable deviceIndex = 0u
-        let mutable continueEnum = true
+    // Helper function to try getting a single display device at index
+    let private tryGetDisplayDevice (index: uint32) =
+        let mutable displayDevice = WindowsAPI.DISPLAY_DEVICE()
+        displayDevice.cb <- Marshal.SizeOf(typeof<WindowsAPI.DISPLAY_DEVICE>)
         
-        while continueEnum do
-            let mutable displayDevice = WindowsAPI.DISPLAY_DEVICE()
-            displayDevice.cb <- Marshal.SizeOf(typeof<WindowsAPI.DISPLAY_DEVICE>)
-            
-            let result = WindowsAPI.EnumDisplayDevices(null, deviceIndex, &displayDevice, 0u)
-            if result then
-                // Skip mirroring drivers
-                let isMirror = (displayDevice.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_MIRRORING_DRIVER) <> 0u
-                if not isMirror then
-                    devices <- displayDevice :: devices
-                deviceIndex <- deviceIndex + 1u
+        let result = WindowsAPI.EnumDisplayDevices(null, index, &displayDevice, 0u)
+        if result then
+            // Skip mirroring drivers
+            let isMirror = (displayDevice.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_MIRRORING_DRIVER) <> 0u
+            if not isMirror then
+                Some displayDevice
             else
-                continueEnum <- false
-        
-        List.rev devices
+                Some displayDevice // Include mirror devices but mark them
+        else
+            None
+    
+    // Functional tail-recursive device enumeration
+    let private enumerateDisplayDevicesRec() =
+        let rec loop index acc =
+            match tryGetDisplayDevice index with
+            | Some device -> 
+                // Filter out mirroring drivers
+                let isMirror = (device.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_MIRRORING_DRIVER) <> 0u
+                let newAcc = if not isMirror then device :: acc else acc
+                loop (index + 1u) newAcc
+            | None -> 
+                List.rev acc
+        loop 0u []
+    
+    // Pure functional wrapper
+    let private getAllDisplayDevices() =
+        enumerateDisplayDevicesRec()
     
     // Get current display settings including refresh rate
     let getCurrentDisplaySettings (deviceName: string) =
@@ -153,44 +165,48 @@ module DisplayDetection =
             None
 
     // Get all supported display modes for a display device
+    // Helper function to try getting a single display mode at index
+    let private tryGetDisplayMode (deviceName: string) (index: int) =
+        let mutable devMode = WindowsAPI.DEVMODE()
+        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
+        
+        let result = WindowsAPI.EnumDisplaySettings(deviceName, index, &devMode)
+        if result then
+            let mode = {
+                Width = int devMode.dmPelsWidth
+                Height = int devMode.dmPelsHeight
+                RefreshRate = int devMode.dmDisplayFrequency
+                BitsPerPixel = int devMode.dmBitsPerPel
+            }
+            
+            // Validate mode
+            if mode.Width > 0 && mode.Height > 0 && mode.RefreshRate > 0 then
+                Some mode
+            else
+                None
+        else
+            None
+    
+    // Functional tail-recursive enumeration
+    let private enumerateModesRec (deviceName: string) =
+        let rec loop index acc =
+            match tryGetDisplayMode deviceName index with
+            | Some mode -> 
+                if index < 10 then // Log first 10 modes for debugging
+                    printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
+                            index mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
+                loop (index + 1) (mode :: acc)
+            | None -> 
+                printfn "[DEBUG] EnumDisplaySettings stopped at index %d" index
+                List.rev acc
+        loop 0 []
+    
+    // Main function with Result type for error handling
     let getAllDisplayModes (deviceName: string) =
-        try
-            let mutable modes = []
-            let mutable modeIndex = 0
-            let mutable continueEnum = true
-            
+        try 
             printfn "Enumerating all display modes for %s..." deviceName
-            
-            while continueEnum do
-                let mutable devMode = WindowsAPI.DEVMODE()
-                devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
-                
-                let result = WindowsAPI.EnumDisplaySettings(deviceName, modeIndex, &devMode)
-                if result then
-                    let mode = {
-                        Width = int devMode.dmPelsWidth
-                        Height = int devMode.dmPelsHeight
-                        RefreshRate = int devMode.dmDisplayFrequency
-                        BitsPerPixel = int devMode.dmBitsPerPel
-                    }
-                    
-                    if modeIndex < 10 then // Log first 10 modes for debugging
-                        printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
-                                modeIndex mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
-                    
-                    // Only add valid modes (basic validation)
-                    if mode.Width > 0 && mode.Height > 0 && mode.RefreshRate > 0 then
-                        modes <- mode :: modes
-                    else
-                        if modeIndex < 10 then
-                            printfn "[DEBUG] Skipping invalid mode at index %d" modeIndex
-                        
-                    modeIndex <- modeIndex + 1
-                else
-                    continueEnum <- false
-                    printfn "[DEBUG] EnumDisplaySettings stopped at index %d" modeIndex
-            
-            let uniqueModes = modes |> List.rev |> List.distinct
+            let modes = enumerateModesRec deviceName
+            let uniqueModes = modes |> List.distinct
             printfn "Found %d unique display modes for %s" uniqueModes.Length deviceName
             
             // Log first few modes for verification
@@ -200,9 +216,8 @@ module DisplayDetection =
                 printfn "  Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate)
             
             uniqueModes
-            
-        with
-        | ex ->
+        with 
+        | ex -> 
             printfn "Error enumerating display modes for %s: %s" deviceName ex.Message
             []
 

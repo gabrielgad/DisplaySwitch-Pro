@@ -8,16 +8,15 @@ open Avalonia.Themes.Fluent
 // Application class and startup logic
 module ApplicationRunner =
     
-    // Avalonia Application class
-    type App() =
+    // Immutable application data
+    type AppData = {
+        World: World option
+        Adapter: IPlatformAdapter option
+    }
+    
+    // Avalonia Application class with functional state
+    type App(appData: AppData ref) =
         inherit Application()
-        
-        static let mutable worldData = None
-        static let mutable adapterData = None
-        
-        static member SetData(world: World, adapter: IPlatformAdapter) =
-            worldData <- Some world
-            adapterData <- Some adapter
         
         override this.Initialize() =
             this.Styles.Add(FluentTheme())
@@ -25,9 +24,9 @@ module ApplicationRunner =
         override this.OnFrameworkInitializationCompleted() =
             match this.ApplicationLifetime with
             | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                match worldData, adapterData with
+                match (!appData).World, (!appData).Adapter with
                 | Some world, Some adapter ->
-                    let window = WindowManager.createMainWindow world adapter
+                    let window = GUI.createMainWindow world adapter
                     desktop.MainWindow <- window
                     window.Show()
                     printfn "Window created and shown"
@@ -37,14 +36,14 @@ module ApplicationRunner =
             
             base.OnFrameworkInitializationCompleted()
 
-    // Application runner
+    // Functional application runner
     let run (adapter: IPlatformAdapter) (world: World) =
-        App.SetData(world, adapter)
+        let appDataRef = ref { World = Some world; Adapter = Some adapter }
         try
             printfn "Starting Avalonia application..."
             let result = 
                 AppBuilder
-                    .Configure<App>()
+                    .Configure<App>(fun () -> App(appDataRef))
                     .UsePlatformDetect()
                     .LogToTrace()
                     .StartWithClassicDesktopLifetime([||])

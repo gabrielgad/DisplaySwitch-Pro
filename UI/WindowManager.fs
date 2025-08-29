@@ -52,17 +52,12 @@ module WindowManager =
                             let updatedWorld = PresetSystem.loadPreset presetName (UIState.getCurrentWorld())
                             UIState.updateWorld updatedWorld
                             
-                            let mutable updatedComponents = (UIState.getCurrentWorld()).Components
-                            
-                            // Apply each display's settings to the physical hardware
-                            for display in config.Displays do
+                            // Apply each display's settings to the physical hardware (functional approach)
+                            let applyDisplaySettings display =
                                 printfn "Debug: Applying display %s - Position: (%d, %d), Enabled: %b, Primary: %b" 
                                         display.Id display.Position.X display.Position.Y display.IsEnabled display.IsPrimary
                                 printfn "Debug: Resolution: %dx%d @ %dHz, Orientation: %A" 
                                         display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate display.Orientation
-                                
-                                // Update component state
-                                updatedComponents <- Components.addDisplay display updatedComponents
                                 
                                 // Apply settings to physical display if it's enabled
                                 if display.IsEnabled then
@@ -89,6 +84,15 @@ module WindowManager =
                                         printfn "Debug: Failed to apply display mode to %s: %s" display.Id err
                                 else
                                     printfn "Debug: Skipping disabled display %s" display.Id
+                            
+                            // Apply settings to all displays
+                            config.Displays |> List.iter applyDisplaySettings
+                            
+                            // Update components using fold instead of mutable accumulator
+                            let updatedComponents = 
+                                config.Displays 
+                                |> List.fold (fun acc display -> Components.addDisplay display acc) 
+                                             (UIState.getCurrentWorld()).Components
                             
                             UIState.updateWorld { UIState.getCurrentWorld() with Components = updatedComponents }
                             

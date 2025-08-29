@@ -3,47 +3,54 @@ namespace DisplaySwitchPro
 open System
 open Avalonia.Controls
 
-// Global UI state management
+// Functional UI state management with encapsulated references
 module UIState =
     
-    // Global state variables
-    let mutable globalWorld = { Components = Components.empty; LastUpdate = DateTime.Now }
-    let mutable globalAdapter: IPlatformAdapter option = None
-    let mutable mainWindow: Window option = None
-    let mutable globalDisplaySettingsDialog: Window option = None
-    let mutable globalCurrentDialogDisplay: DisplayInfo option = None
+    // Immutable state type
+    type AppState = {
+        World: World
+        Adapter: IPlatformAdapter option
+        MainWindow: Window option
+        DisplaySettingsDialog: Window option
+        CurrentDialogDisplay: DisplayInfo option
+    }
     
-    // Update the global world state
+    // Default state
+    let private defaultState = {
+        World = { Components = Components.empty; LastUpdate = DateTime.Now }
+        Adapter = None
+        MainWindow = None
+        DisplaySettingsDialog = None
+        CurrentDialogDisplay = None
+    }
+    
+    // Encapsulated mutable reference (single source of truth)
+    let private globalState = ref defaultState
+    
+    // Functional state update helpers
     let updateWorld newWorld =
-        globalWorld <- newWorld
+        let currentState = !globalState
+        globalState := { currentState with World = newWorld }
     
-    // Update the global adapter
     let updateAdapter adapter =
-        globalAdapter <- Some adapter
+        let currentState = !globalState
+        globalState := { currentState with Adapter = Some adapter }
     
-    // Set the main window reference
     let setMainWindow window =
-        mainWindow <- Some window
+        let currentState = !globalState
+        globalState := { currentState with MainWindow = Some window }
         
-    // Set the display settings dialog reference
     let setDisplaySettingsDialog dialog =
-        globalDisplaySettingsDialog <- dialog
+        let currentState = !globalState
+        globalState := { currentState with DisplaySettingsDialog = dialog }
         
-    // Set the current dialog display
     let setCurrentDialogDisplay display =
-        globalCurrentDialogDisplay <- display
+        let currentState = !globalState
+        globalState := { currentState with CurrentDialogDisplay = display }
         
-    // Get the current world state
-    let getCurrentWorld() = globalWorld
-    
-    // Get the current adapter
-    let getCurrentAdapter() = globalAdapter
-    
-    // Get the main window
-    let getMainWindow() = mainWindow
-    
-    // Get the display settings dialog
-    let getDisplaySettingsDialog() = globalDisplaySettingsDialog
-    
-    // Get the current dialog display
-    let getCurrentDialogDisplay() = globalCurrentDialogDisplay
+    // Functional getters - return immutable values
+    let getCurrentWorld() = (!globalState).World
+    let getCurrentAdapter() = (!globalState).Adapter
+    let getMainWindow() = (!globalState).MainWindow
+    let getDisplaySettingsDialog() = (!globalState).DisplaySettingsDialog
+    let getCurrentDialogDisplay() = (!globalState).CurrentDialogDisplay

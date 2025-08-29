@@ -171,7 +171,7 @@ module UIComponents =
         stackPanel.Orientation <- Orientation.Vertical
         stackPanel.Margin <- Thickness(15.0)
         
-        for display in displays do
+        displays |> List.iter (fun display ->
             // Debug output
             printfn "DEBUG: Creating card for display %s - Enabled: %b, Has Capabilities: %b" 
                 display.Name display.IsEnabled display.Capabilities.IsSome
@@ -330,6 +330,7 @@ module UIComponents =
             cardContent.Children.Add(buttonPanel)
             displayCard.Child <- cardContent
             stackPanel.Children.Add(displayCard)
+        )
         
         stackPanel
 
@@ -1020,18 +1021,21 @@ module UIComponents =
                     
                     // Start the async test
                     let testComplete (result: Result<string, string>) =
-                        // Re-enable the test button
-                        testButtonElement.IsEnabled <- true
-                        testButtonElement.Opacity <- 1.0
-                        testTextElement.Text <- "Test 15s"
-                        testTextElement.Foreground <- SolidColorBrush(Colors.White)
-                        testButtonElement.Background <- SolidColorBrush(colors.Secondary)
-                        
-                        match result with
-                        | Ok msg ->
-                            printfn "[DEBUG UIComponents] Test completed successfully: %s" msg
-                        | Error err ->
-                            printfn "[DEBUG UIComponents] Test failed: %s" err
+                        // Dispatch UI updates to the UI thread
+                        Avalonia.Threading.Dispatcher.UIThread.Post(fun () ->
+                            // Re-enable the test button
+                            testButtonElement.IsEnabled <- true
+                            testButtonElement.Opacity <- 1.0
+                            testTextElement.Text <- "Test 15s"
+                            testTextElement.Foreground <- SolidColorBrush(Colors.White)
+                            testButtonElement.Background <- SolidColorBrush(colors.Secondary)
+                            
+                            match result with
+                            | Ok msg ->
+                                printfn "[DEBUG UIComponents] Test completed successfully: %s" msg
+                            | Error err ->
+                                printfn "[DEBUG UIComponents] Test failed: %s" err
+                        )
                     
                     // Execute the test asynchronously
                     Async.Start(WindowsDisplaySystem.testDisplayMode display.Id mode selectedOrientation testComplete)

@@ -9,6 +9,11 @@ open Avalonia.Media
 
 module DisplayCanvas =
     
+    type DragState = {
+        IsDragging: bool
+        StartPoint: Point
+    }
+    
     let createDisplayCanvas (displays: DisplayInfo list) (onDisplayChanged: DisplayId -> DisplayInfo -> unit) =
         let colors = Theme.getCurrentColors()
         let canvas = Canvas()
@@ -76,44 +81,43 @@ module DisplayCanvas =
             let movingWidth = float movingDisplay.Resolution.Width * 0.1
             let movingHeight = float movingDisplay.Resolution.Height * 0.1
             
-            let mutable bestSnapPoint = None
-            let mutable bestSnapDistance = Double.MaxValue
+            let getSnapCandidatesForDisplay (display: DisplayInfo) =
+                let displayX = float display.Position.X * 0.1
+                let displayY = float display.Position.Y * 0.1
+                let displayWidth = float display.Resolution.Width * 0.1
+                let displayHeight = float display.Resolution.Height * 0.1
+                
+                [
+                    (displayX + displayWidth, displayY)
+                    (displayX + displayWidth, displayY + displayHeight - movingHeight)
+                    (displayX - movingWidth, displayY)
+                    (displayX - movingWidth, displayY + displayHeight - movingHeight)
+                    (displayX, displayY + displayHeight)
+                    (displayX + displayWidth - movingWidth, displayY + displayHeight)
+                    (displayX, displayY - movingHeight)
+                    (displayX + displayWidth - movingWidth, displayY - movingHeight)
+                    (displayX, displayY)
+                    (displayX, displayY + displayHeight - movingHeight)
+                    (displayX + displayWidth - movingWidth, displayY)
+                    (displayX + displayWidth - movingWidth, displayY + displayHeight - movingHeight)
+                ]
             
-            for display in allDisplays do
-                if display.Id <> movingDisplay.Id && display.IsEnabled then
-                    let displayX = float display.Position.X * 0.1
-                    let displayY = float display.Position.Y * 0.1
-                    let displayWidth = float display.Resolution.Width * 0.1
-                    let displayHeight = float display.Resolution.Height * 0.1
-                    
-                    let snapCandidates = [
-                        (displayX + displayWidth, displayY)
-                        (displayX + displayWidth, displayY + displayHeight - movingHeight)
-                        (displayX - movingWidth, displayY)
-                        (displayX - movingWidth, displayY + displayHeight - movingHeight)
-                        (displayX, displayY + displayHeight)
-                        (displayX + displayWidth - movingWidth, displayY + displayHeight)
-                        (displayX, displayY - movingHeight)
-                        (displayX + displayWidth - movingWidth, displayY - movingHeight)
-                        (displayX, displayY)
-                        (displayX, displayY + displayHeight - movingHeight)
-                        (displayX + displayWidth - movingWidth, displayY)
-                        (displayX + displayWidth - movingWidth, displayY + displayHeight - movingHeight)
-                    ]
-                    
-                    for (candidateX, candidateY) in snapCandidates do
-                        let distanceX = Math.Abs(candidateX - targetX)
-                        let distanceY = Math.Abs(candidateY - targetY)
-                        let totalDistance = Math.Sqrt(distanceX * distanceX + distanceY * distanceY)
-                        
-                        if totalDistance <= snapProximityThreshold then
-                            if totalDistance < bestSnapDistance then
-                                bestSnapDistance <- totalDistance
-                                bestSnapPoint <- Some (candidateX, candidateY)
+            let calculateDistance (candidateX, candidateY) =
+                let distanceX = Math.Abs(candidateX - targetX)
+                let distanceY = Math.Abs(candidateY - targetY)
+                Math.Sqrt(distanceX * distanceX + distanceY * distanceY)
             
-            match bestSnapPoint with
-            | Some point -> [point]
-            | None -> []
+            allDisplays
+            |> List.filter (fun display -> display.Id <> movingDisplay.Id && display.IsEnabled)
+            |> List.collect getSnapCandidatesForDisplay
+            |> List.map (fun point -> (point, calculateDistance point))
+            |> List.filter (fun (_, distance) -> distance <= snapProximityThreshold)
+            |> List.sortBy snd
+            |> List.tryHead
+            |> Option.map fst
+            |> function
+                | Some point -> [point]
+                | None -> []
 
         let checkCollision (movingDisplayId: DisplayId) (newX: float) (newY: float) (movingWidth: float) (movingHeight: float) (allDisplays: DisplayInfo list) =
             allDisplays
@@ -180,16 +184,12 @@ module DisplayCanvas =
                 let boundedY = Math.Max(0.0, Math.Min(targetY, canvas.Height - movingHeight))
                 (boundedX, boundedY)
 
-        let mutable visualDisplays: UIComponents.VisualDisplay list = []
-        
         let onPositionChanged displayId (x, y) =
             let display = displays |> List.find (fun d -> d.Id = displayId)
             let updatedDisplay = { display with Position = { X = int (x * 10.0); Y = int (y * 10.0) } }
             onDisplayChanged displayId updatedDisplay
         
-        for display in displays do
-            let mutable currentDisplay = display
-            
+        let createVisualDisplayWithHandlers (display: DisplayInfo) (allVisualDisplays: UIComponents.VisualDisplay list ref) =
             let onDragging (border: Border) (currentPos: float * float) =
                 let (x, y) = currentPos
                 let finalX = Math.Max(0.0, Math.Min(x, canvas.Width - border.Width))
@@ -203,7 +203,7 @@ module DisplayCanvas =
                 let y = Canvas.GetTop(border)
                 
                 let currentDisplayStates = 
-                    visualDisplays
+                    !allVisualDisplays
                     |> List.map (fun vd -> 
                         let currentX = Canvas.GetLeft(vd.Border) 
                         let currentY = Canvas.GetTop(vd.Border)
@@ -236,38 +236,45 @@ module DisplayCanvas =
             Canvas.SetLeft(visualDisplay.Border, canvasX)
             Canvas.SetTop(visualDisplay.Border, canvasY)
             
-            let mutable isDragging = false
-            let mutable dragStart = Point(0.0, 0.0)
+            // Drag state per visual display
+            let dragState = ref { IsDragging = false; StartPoint = Point(0.0, 0.0) }
             
             visualDisplay.Border.PointerPressed.Add(fun e ->
                 if e.GetCurrentPoint(visualDisplay.Border).Properties.IsLeftButtonPressed then
-                    isDragging <- true
-                    dragStart <- e.GetPosition(canvas)
+                    dragState := { IsDragging = true; StartPoint = e.GetPosition(canvas) }
                     visualDisplay.Border.Opacity <- 0.7
             )
             
             visualDisplay.Border.PointerReleased.Add(fun e ->
-                if isDragging then
-                    isDragging <- false
+                if (!dragState).IsDragging then
+                    dragState := { IsDragging = false; StartPoint = Point(0.0, 0.0) }
                     visualDisplay.Border.Opacity <- 1.0
                     onDragEnd display.Id visualDisplay.Border
             )
             
             visualDisplay.Border.PointerMoved.Add(fun e ->
-                if isDragging then
+                if (!dragState).IsDragging then
                     let currentPos = e.GetPosition(canvas)
-                    let deltaX = currentPos.X - dragStart.X
-                    let deltaY = currentPos.Y - dragStart.Y
+                    let deltaX = currentPos.X - (!dragState).StartPoint.X
+                    let deltaY = currentPos.Y - (!dragState).StartPoint.Y
                     
                     let newX = Canvas.GetLeft(visualDisplay.Border) + deltaX
                     let newY = Canvas.GetTop(visualDisplay.Border) + deltaY
                     
                     onDragging visualDisplay.Border (newX, newY)
-                    dragStart <- currentPos
+                    dragState := { !dragState with StartPoint = currentPos }
             )
             
-            visualDisplays <- visualDisplay :: visualDisplays
+            visualDisplay
+        
+        let visualDisplays = ref []
+        
+        displays
+        |> List.iter (fun display ->
+            let visualDisplay = createVisualDisplayWithHandlers display visualDisplays
+            visualDisplays := visualDisplay :: !visualDisplays
             canvas.Children.Add(visualDisplay.Border)
+        )
         
         let scrollViewer = ScrollViewer()
         scrollViewer.Content <- canvas

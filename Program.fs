@@ -30,5 +30,5 @@ let main args =
     printfn "Starting GUI..."
     
     // Launch GUI - this doesn't return until app closes
-    let exitCode = AppRunner.run adapter worldWithPreset
+    let exitCode = ApplicationRunner.run adapter worldWithPreset
     exitCode

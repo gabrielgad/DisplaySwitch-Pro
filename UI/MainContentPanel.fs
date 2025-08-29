@@ -119,17 +119,18 @@ module MainContentPanel =
         UIState.updateWorld world
         UIState.updateAdapter adapter
         
-        let mutable currentWorld = world
-        let displays = currentWorld.Components.ConnectedDisplays |> Map.values |> List.ofSeq
-        let presets = PresetSystem.listPresets currentWorld
+        let currentWorldRef = ref world
+        let displays = world.Components.ConnectedDisplays |> Map.values |> List.ofSeq
+        let presets = PresetSystem.listPresets world
         
         printfn "DEBUG: Creating content with displays:"
-        for display in displays do
-            printfn "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled
+        displays |> List.iter (fun display ->
+            printfn "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled)
         
-        // Display change handler
+        // Display change handler - now functional
         let onDisplayChanged displayId (updatedDisplay: DisplayInfo) =
-            let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
+            let currentWorld = !currentWorldRef
+            let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
             
             let allDisplays = updatedComponents.ConnectedDisplays |> Map.values |> List.ofSeq
             let newConfig = {
@@ -138,32 +139,30 @@ module MainContentPanel =
                 CreatedAt = DateTime.Now
             }
             let componentsWithConfig = Components.setCurrentConfiguration newConfig updatedComponents
+            let newWorld = { currentWorld with Components = componentsWithConfig }
             
-            currentWorld <- { currentWorld with Components = componentsWithConfig }
-            UIState.updateWorld currentWorld
+            currentWorldRef := newWorld
+            UIState.updateWorld newWorld
             printfn "Display %s moved to (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
         
         // Preset click handler
         let onPresetClick (presetName: string) =
             if presetName = "SAVE_NEW" then
-                let dialog = createPresetSaveDialog colors currentWorld
+                let dialog = createPresetSaveDialog colors (!currentWorldRef)
                 dialog.ShowDialog(UIState.getMainWindow() |> Option.defaultValue null) |> ignore
             else
                 // Load existing preset
                 printfn "Loading preset: %s" presetName
                 
-                match Map.tryFind presetName currentWorld.Components.SavedPresets with
+                let currentWorld = !currentWorldRef
+                match Map.tryFind presetName (!currentWorldRef).Components.SavedPresets with
                 | Some preset ->
                     printfn "Debug: Loaded preset %s with %d displays" preset.Name preset.Displays.Length
                     
-                    let mutable updatedComponents = currentWorld.Components
-                    
-                    for display in preset.Displays do
+                    // Process preset displays functionally
+                    preset.Displays |> List.iter (fun display ->
                         printfn "Debug: Processing preset display %s - Resolution: %dx%d @ %dHz, Orientation: %A" 
                                 display.Id display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate display.Orientation
-                        
-                        // Update component state
-                        updatedComponents <- Components.addDisplay display updatedComponents
                         
                         // Apply settings to physical display if it's enabled
                         if display.IsEnabled then
@@ -190,8 +189,17 @@ module MainContentPanel =
                                 printfn "Debug: Failed to apply display mode to %s: %s" display.Id err
                         else
                             printfn "Debug: Skipping disabled display %s" display.Id
+                    )
                     
-                    UIState.updateWorld { UIState.getCurrentWorld() with Components = updatedComponents }
+                    // Update components after processing all displays
+                    let updatedComponents = 
+                        preset.Displays |> List.fold (fun components display ->
+                            Components.addDisplay display components
+                        ) (!currentWorldRef).Components
+                    
+                    let newWorld = { currentWorld with Components = updatedComponents }
+                    currentWorldRef := newWorld
+                    UIState.updateWorld newWorld
                     
                     printfn "Debug: Preset application completed, refreshing UI"
                     refreshMainWindowContent ()
@@ -207,15 +215,17 @@ module MainContentPanel =
         // Display canvas is already a ScrollViewer from DisplayCanvas.createDisplayCanvas
         displayCanvas.Background <- SolidColorBrush(colors.Background) :> IBrush
         
-        // Display toggle handler
+        // Display toggle handler - now functional
         let onDisplayToggle (displayId: DisplayId) (enabled: bool) =
             printfn "Toggle display %s to %b" displayId enabled
-            match Map.tryFind displayId currentWorld.Components.ConnectedDisplays with
+            let currentWorld = !currentWorldRef
+            match Map.tryFind displayId (!currentWorldRef).Components.ConnectedDisplays with
             | Some display ->
                 let updatedDisplay = { display with IsEnabled = enabled }
-                let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
-                currentWorld <- { currentWorld with Components = updatedComponents }
-                UIState.updateWorld currentWorld
+                let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
+                let newWorld = { currentWorld with Components = updatedComponents }
+                currentWorldRef := newWorld
+                UIState.updateWorld newWorld
                 
                 // Apply to physical display
                 match WindowsDisplaySystem.setDisplayEnabled displayId enabled with
@@ -243,7 +253,7 @@ module MainContentPanel =
                         | Error err -> printfn "Failed to set as primary: %s" err
                     
                     // Update the display info and refresh UI
-                    match Map.tryFind displayId currentWorld.Components.ConnectedDisplays with
+                    match Map.tryFind displayId (!currentWorldRef).Components.ConnectedDisplays with
                     | Some existingDisplay ->
                         let updatedDisplay = { 
                             existingDisplay with 
@@ -251,9 +261,10 @@ module MainContentPanel =
                                 Orientation = orientation
                                 IsPrimary = isPrimary 
                         }
-                        let updatedComponents = Components.addDisplay updatedDisplay currentWorld.Components
-                        currentWorld <- { currentWorld with Components = updatedComponents }
-                        UIState.updateWorld currentWorld
+                        let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
+                        let newWorld = { (!currentWorldRef) with Components = updatedComponents }
+                        currentWorldRef := newWorld
+                        UIState.updateWorld newWorld
                         refreshMainWindowContent ()
                     | None -> ()
                 | Error err ->

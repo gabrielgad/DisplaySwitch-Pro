@@ -29,11 +29,13 @@ module GUI =
                     )
                 
                 // Update the world with preserved display data
-                let mutable updatedComponents = (UIState.getCurrentWorld()).Components
-                for display in preservedDisplays do
-                    updatedComponents <- Components.addDisplay display updatedComponents
+                let currentWorld = UIState.getCurrentWorld()
+                let updatedComponents = 
+                    preservedDisplays |> List.fold (fun components display ->
+                        Components.addDisplay display components
+                    ) currentWorld.Components
                 
-                UIState.updateWorld { UIState.getCurrentWorld() with Components = updatedComponents }
+                UIState.updateWorld { currentWorld with Components = updatedComponents }
                 
                 // Recreate the UI with updated display info
                 let content = MainContentPanel.createMainContentPanel (UIState.getCurrentWorld()) adapter
@@ -52,7 +54,3 @@ module GUI =
         initializeModules()
         WindowManager.createMainWindow world adapter
 
-// Legacy compatibility - redirect to ApplicationRunner
-module AppRunner =
-    let run (adapter: IPlatformAdapter) (world: World) =
-        ApplicationRunner.run adapter world

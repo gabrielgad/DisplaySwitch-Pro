@@ -38,8 +38,8 @@
     <Compile Include="UI/UIState.fs" />
     <Compile Include="UI/MainContentPanel.fs" />
     <Compile Include="UI/WindowManager.fs" />
-    <Compile Include="UI/ApplicationRunner.fs" />
     <Compile Include="UI/GUI.fs" />
+    <Compile Include="UI/ApplicationRunner.fs" />
     
     <!-- Tests and Entry Point -->
     <Compile Include="Tests.fs" />
