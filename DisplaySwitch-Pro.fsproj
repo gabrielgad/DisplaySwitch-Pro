@@ -15,24 +15,33 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="Types.fs" />
-    <Compile Include="Components.fs" />
-    <Compile Include="WindowsAPI.fs" />
-    <Compile Include="DisplayStateCache.fs" />
-    <Compile Include="DisplayConfigurationAPI.fs" />
-    <Compile Include="DisplayDetection.fs" />
-    <Compile Include="DisplayControl.fs" />
-    <Compile Include="WindowsDisplaySystem.fs" />
-    <Compile Include="PlatformAdapter.fs" />
-    <Compile Include="Systems.fs" />
-    <Compile Include="Theme.fs" />
-    <Compile Include="UIComponents.fs" />
-    <Compile Include="DisplayCanvas.fs" />
-    <Compile Include="UIState.fs" />
-    <Compile Include="MainContentPanel.fs" />
-    <Compile Include="WindowManager.fs" />
-    <Compile Include="ApplicationRunner.fs" />
-    <Compile Include="GUI.fs" />
+    <!-- Core Domain - Base types first -->
+    <Compile Include="Core/Types.fs" />
+    <Compile Include="Core/Components.fs" />
+    
+    <!-- API Domain - API implementations -->
+    <Compile Include="API/WindowsAPI.fs" />
+    <Compile Include="API/DisplayStateCache.fs" />
+    <Compile Include="API/DisplayConfigurationAPI.fs" />
+    <Compile Include="API/DisplayDetection.fs" />
+    <Compile Include="API/DisplayControl.fs" />
+    <Compile Include="API/WindowsDisplaySystem.fs" />
+    <Compile Include="API/PlatformAdapter.fs" />
+    
+    <!-- Core Domain - Systems that depend on API -->
+    <Compile Include="Core/Systems.fs" />
+    
+    <!-- UI Domain - UI components -->
+    <Compile Include="UI/Theme.fs" />
+    <Compile Include="UI/UIComponents.fs" />
+    <Compile Include="UI/DisplayCanvas.fs" />
+    <Compile Include="UI/UIState.fs" />
+    <Compile Include="UI/MainContentPanel.fs" />
+    <Compile Include="UI/WindowManager.fs" />
+    <Compile Include="UI/ApplicationRunner.fs" />
+    <Compile Include="UI/GUI.fs" />
+    
+    <!-- Tests and Entry Point -->
     <Compile Include="Tests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
