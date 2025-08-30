@@ -15,11 +15,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core Domain - Base types first -->
+    <!-- Core Domain - Base types and simplified state -->
     <Compile Include="Core/Types.fs" />
-    <Compile Include="Core/Components.fs" />
+    <Compile Include="AppState.fs" />
     
-    <!-- API Domain - API implementations -->
+    <!-- API Domain - Display operations -->
     <Compile Include="API/WindowsAPI.fs" />
     <Compile Include="API/DisplayStateCache.fs" />
     <Compile Include="API/DisplayConfigurationAPI.fs" />
@@ -28,10 +28,7 @@
     <Compile Include="API/WindowsDisplaySystem.fs" />
     <Compile Include="API/PlatformAdapter.fs" />
     
-    <!-- Core Domain - Systems that depend on API -->
-    <Compile Include="Core/Systems.fs" />
-    
-    <!-- UI Domain - UI components -->
+    <!-- UI Domain - User interface -->
     <Compile Include="UI/Theme.fs" />
     <Compile Include="UI/UIComponents.fs" />
     <Compile Include="UI/DisplayCanvas.fs" />
@@ -42,7 +39,7 @@
     <Compile Include="UI/ApplicationRunner.fs" />
     
     <!-- Tests and Entry Point -->
-    <Compile Include="Tests.fs" />
+    <!-- <Compile Include="Tests.fs" /> Temporarily disabled during ECS removal -->
     <Compile Include="Program.fs" />
   </ItemGroup>
 

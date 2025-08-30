@@ -53,7 +53,7 @@ module DisplayDetection =
                         
                         // Add to list - WMI monitors should appear in same order as displays
                         monitors.Add(fullName)
-                        printfn "WMI Monitor: %s -> %s" instanceName fullName
+                        // printfn "WMI Monitor: %s -> %s" instanceName fullName
                 
                 with ex -> 
                     printfn "Error processing WMI monitor: %s" ex.Message
@@ -192,28 +192,29 @@ module DisplayDetection =
         let rec loop index acc =
             match tryGetDisplayMode deviceName index with
             | Some mode -> 
-                if index < 10 then // Log first 10 modes for debugging
-                    printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
-                            index mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
+                // Commented out verbose mode logging - only log if needed for debugging
+                // if index < 10 then
+                //     printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
+                //             index mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
                 loop (index + 1) (mode :: acc)
             | None -> 
-                printfn "[DEBUG] EnumDisplaySettings stopped at index %d" index
+                // printfn "[DEBUG] EnumDisplaySettings stopped at index %d" index
                 List.rev acc
         loop 0 []
     
     // Main function with Result type for error handling
     let getAllDisplayModes (deviceName: string) =
         try 
-            printfn "Enumerating all display modes for %s..." deviceName
+            // Commented out verbose mode enumeration logging
+            // printfn "Enumerating all display modes for %s..." deviceName
             let modes = enumerateModesRec deviceName
             let uniqueModes = modes |> List.distinct
-            printfn "Found %d unique display modes for %s" uniqueModes.Length deviceName
-            
-            // Log first few modes for verification
-            uniqueModes 
-            |> List.take (min 5 uniqueModes.Length)
-            |> List.iter (fun mode -> 
-                printfn "  Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate)
+            // Commented out verbose mode listing - only log count
+            // printfn "Found %d unique display modes for %s" uniqueModes.Length deviceName
+            // uniqueModes 
+            // |> List.take (min 5 uniqueModes.Length)
+            // |> List.iter (fun mode -> 
+            //     printfn "  Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate)
             
             uniqueModes
         with 
@@ -319,11 +320,12 @@ module DisplayDetection =
     // Main function to get all connected displays (following ECS pattern)
     let getConnectedDisplays() : DisplayInfo list =
         try
-            printfn "Windows display detection: Enumerating all display devices..."
+            // Commented out verbose display detection logging
+            // printfn "Windows display detection: Enumerating all display devices..."
             
             // Get monitor friendly names from WMI
             let wmiMonitors = getMonitorFriendlyNames()
-            printfn "Found %d WMI monitor entries" wmiMonitors.Count
+            // printfn "Found %d WMI monitor entries" wmiMonitors.Count
             
             // Get all display devices (active and inactive)
             let allDevices = getAllDisplayDevices()
@@ -331,14 +333,14 @@ module DisplayDetection =
             
             // Get active monitor information
             let activeMonitors = getActiveMonitorInfo()
-            printfn "Found %d active monitors" activeMonitors.Count
+            // printfn "Found %d active monitors" activeMonitors.Count
             
             // Convert to domain types
             allDevices
             |> List.mapi (fun index device ->
                 let monitorInfo = Map.tryFind device.DeviceName activeMonitors
                 let displayInfo = convertToDisplayInfo device monitorInfo wmiMonitors index
-                printfn "  %s: %s" displayInfo.Id (if displayInfo.IsEnabled then "ENABLED" else "DISABLED")
+                // printfn "  %s: %s" displayInfo.Id (if displayInfo.IsEnabled then "ENABLED" else "DISABLED")
                 displayInfo
             )
             

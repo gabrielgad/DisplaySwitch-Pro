@@ -2,33 +2,35 @@ open DisplaySwitchPro
 
 [<EntryPoint>]
 let main args =
-    printfn "DisplaySwitch-Pro ECS System starting..."
+    printfn "DisplaySwitch-Pro starting..."
     
-    // Create platform adapter and world
+    // Create platform adapter and detect displays
     let adapter = PlatformAdapter.create ()
-    let world = World.create ()
-    let worldWithDisplays = DisplayDetectionSystem.updateWorld adapter world
+    let displays = adapter.GetConnectedDisplays()
     
-    printfn $"Detected {worldWithDisplays.Components.ConnectedDisplays.Count} displays"
+    printfn $"Detected {displays.Length} displays"
+    
+    // Create initial application state
+    let initialState = AppState.updateDisplays displays AppState.empty
     
     // Create a configuration from current displays
     let currentConfig = {
-        Displays = worldWithDisplays.Components.ConnectedDisplays |> Map.values |> List.ofSeq
+        Displays = displays
         Name = "Current Setup"
         CreatedAt = System.DateTime.Now
     }
     
     // Set as current and save as preset
-    let worldWithConfig = World.processEvent (DisplayConfigurationChanged currentConfig) worldWithDisplays
-    let worldWithPreset = PresetSystem.saveCurrentAsPreset "My Setup" worldWithConfig
+    let stateWithConfig = AppState.setCurrentConfiguration currentConfig initialState
+    let stateWithPreset = AppState.savePreset "My Setup" currentConfig stateWithConfig
     
     // Test preset listing
-    let presets = PresetSystem.listPresets worldWithPreset
+    let presets = AppState.listPresets stateWithPreset
     printfn $"Saved presets: {presets}"
     
-    printfn "✅ ECS System working perfectly!"
+    printfn "✅ System working perfectly!"
     printfn "Starting GUI..."
     
     // Launch GUI - this doesn't return until app closes
-    let exitCode = ApplicationRunner.run adapter worldWithPreset
+    let exitCode = ApplicationRunner.run adapter stateWithPreset
     exitCode

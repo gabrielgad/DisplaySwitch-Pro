@@ -10,7 +10,7 @@ module ApplicationRunner =
     
     // Immutable application data
     type AppData = {
-        World: World option
+        State: AppState option
         Adapter: IPlatformAdapter option
     }
     
@@ -24,9 +24,9 @@ module ApplicationRunner =
         override this.OnFrameworkInitializationCompleted() =
             match this.ApplicationLifetime with
             | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-                match (!appData).World, (!appData).Adapter with
-                | Some world, Some adapter ->
-                    let window = GUI.createMainWindow world adapter
+                match (!appData).State, (!appData).Adapter with
+                | Some state, Some adapter ->
+                    let window = GUI.createMainWindow state adapter
                     desktop.MainWindow <- window
                     window.Show()
                     printfn "Window created and shown"
@@ -37,8 +37,8 @@ module ApplicationRunner =
             base.OnFrameworkInitializationCompleted()
 
     // Functional application runner
-    let run (adapter: IPlatformAdapter) (world: World) =
-        let appDataRef = ref { World = Some world; Adapter = Some adapter }
+    let run (adapter: IPlatformAdapter) (state: AppState) =
+        let appDataRef = ref { State = Some state; Adapter = Some adapter }
         try
             printfn "Starting Avalonia application..."
             let result = 

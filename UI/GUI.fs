@@ -16,10 +16,10 @@ module GUI =
                 printfn "[DEBUG GUI] Refreshing display information..."
                 let freshDisplays = adapter.GetConnectedDisplays()
                 
-                // Preserve the application-level IsEnabled state from current world
+                // Preserve the application-level IsEnabled state from current app state
                 let preservedDisplays = 
                     freshDisplays |> List.map (fun freshDisplay ->
-                        match Map.tryFind freshDisplay.Id (UIState.getCurrentWorld()).Components.ConnectedDisplays with
+                        match Map.tryFind freshDisplay.Id (UIState.getCurrentAppState()).ConnectedDisplays with
                         | Some existingDisplay ->
                             // Preserve the application-level IsEnabled state
                             { freshDisplay with IsEnabled = existingDisplay.IsEnabled }
@@ -28,17 +28,13 @@ module GUI =
                             freshDisplay
                     )
                 
-                // Update the world with preserved display data
-                let currentWorld = UIState.getCurrentWorld()
-                let updatedComponents = 
-                    preservedDisplays |> List.fold (fun components display ->
-                        Components.addDisplay display components
-                    ) currentWorld.Components
-                
-                UIState.updateWorld { currentWorld with Components = updatedComponents }
+                // Update the app state with preserved display data
+                let currentAppState = UIState.getCurrentAppState()
+                let updatedAppState = AppState.updateDisplays preservedDisplays currentAppState
+                UIState.updateAppState updatedAppState
                 
                 // Recreate the UI with updated display info
-                let content = MainContentPanel.createMainContentPanel (UIState.getCurrentWorld()) adapter
+                let content = MainContentPanel.createMainContentPanel (UIState.getCurrentAppState()) adapter
                 window.Content <- content
                 printfn "[DEBUG GUI] UI refreshed with %d displays" preservedDisplays.Length
             | None -> ()
@@ -50,7 +46,7 @@ module GUI =
         WindowManager.setRefreshFunction refreshMainWindowContent
     
     // Create main window
-    let createMainWindow (world: World) (adapter: IPlatformAdapter) =
+    let createMainWindow (appState: AppState) (adapter: IPlatformAdapter) =
         initializeModules()
-        WindowManager.createMainWindow world adapter
+        WindowManager.createMainWindow appState adapter
 

@@ -132,10 +132,34 @@ dotnet run    # ✅ GUI boots and functions correctly
 - **⭕ Only WindowsAPI.fs remains imperative (required for P/Invoke)**
 
 ### Critical Issues to Resolve
-1. **Display Enable/Disable Bug**: setDisplayEnabled function appears to succeed but display remains inactive
-   - May be related to Windows CCD API topology management
-   - Requires investigation of display path mapping and mode setting sequence
-   - Could be WSL environment limitation or driver issue
+1. **Display Enable/Disable Bug**: Multiple strategies fail to enable DISPLAY4 (SAM Q80A TV)
+   
+   **Current Error Analysis (from logs):**
+   - **Strategy 1 - CCDTargeted**: Fails with "Display path has no associated mode information"
+     - The display path exists but has `modeInfoIdx = 0xFFFFFFFF` (no mode info)
+     - CCD API finds the path but it's not properly configured
+   
+   - **Strategy 2 - CCDTopologyExtend**: Fails with "Invalid parameter"
+     - SetDisplayConfig with SDC_TOPOLOGY_EXTEND flag returns ERROR_INVALID_PARAMETER
+     - This suggests the display topology cannot be extended in current state
+   
+   - **Strategy 3 - DEVMODEDirect**: Fails with "Failed to set as primary"
+     - Display modes are successfully enumerated (170 modes found, including 4K resolutions)
+     - But ChangeDisplaySettingsEx returns DISP_CHANGE_FAILED (-1)
+   
+   - **Strategy 4 - DEVMODEWithReset**: Fails at test phase with "DEVMODE test failed: -1"
+     - CDS_TEST returns DISP_CHANGE_FAILED before even attempting to apply
+     - Display supports the mode but Windows rejects the configuration
+   
+   - **Strategy 5 - HardwareReset**: Fails with "Invalid parameter"
+     - Force enumeration also returns ERROR_INVALID_PARAMETER
+   
+   **Root Cause Analysis:**
+   - Display 4 is detected by Windows (shows as DISPLAY4 in EnumDisplayDevices)
+   - Display modes are queryable (170 modes including 4K resolutions)
+   - Display appears in CCD paths but lacks proper mode association
+   - All attempts to activate the display fail at the Windows API level
+   - This appears to be a Windows display driver or configuration issue, not a code issue
 
 ### ECS Simplification (Future Phase)
 - Evaluate if ECS adds value or should be simplified to direct functional approach

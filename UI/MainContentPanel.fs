@@ -27,7 +27,7 @@ module MainContentPanel =
         | None -> printfn "[WARNING] Refresh function not set"
     
     // Create preset save dialog
-    let private createPresetSaveDialog (colors: Theme.ThemeColors) currentWorld =
+    let private createPresetSaveDialog (colors: Theme.ThemeColors) currentAppState =
         let dialog = Window()
         dialog.Title <- "Save Preset"
         dialog.Width <- 400.0
@@ -62,8 +62,14 @@ module MainContentPanel =
             if e.Key = Avalonia.Input.Key.Enter then
                 let name = textBox.Text.Trim()
                 if not (String.IsNullOrEmpty(name)) then
-                    let updatedWorld = PresetSystem.saveCurrentAsPreset name currentWorld
-                    UIState.updateWorld updatedWorld
+                    let displays = currentAppState.ConnectedDisplays |> Map.values |> List.ofSeq
+                    let config = {
+                        Displays = displays
+                        Name = name
+                        CreatedAt = DateTime.Now
+                    }
+                    let updatedAppState = AppState.savePreset name config currentAppState
+                    UIState.updateAppState updatedAppState
                     printfn "Saving preset: %s" name
                     dialog.Close()
                     printfn "Preset saved successfully"
@@ -86,8 +92,14 @@ module MainContentPanel =
         saveButton.Click.Add(fun _ ->
             let name = textBox.Text.Trim()
             if not (String.IsNullOrEmpty(name)) then
-                let updatedWorld = PresetSystem.saveCurrentAsPreset name currentWorld
-                UIState.updateWorld updatedWorld
+                let displays = currentAppState.ConnectedDisplays |> Map.values |> List.ofSeq
+                let config = {
+                    Displays = displays
+                    Name = name
+                    CreatedAt = DateTime.Now
+                }
+                let updatedAppState = AppState.savePreset name config currentAppState
+                UIState.updateAppState updatedAppState
                 printfn "Saving preset: %s" name
                 dialog.Close()
                 
@@ -112,16 +124,16 @@ module MainContentPanel =
         dialog
 
     // Create main content panel
-    let createMainContentPanel (world: World) (adapter: IPlatformAdapter) =
+    let createMainContentPanel (appState: AppState) (adapter: IPlatformAdapter) =
         let colors = Theme.getCurrentColors()
         
         // Update global state
-        UIState.updateWorld world
+        UIState.updateAppState appState
         UIState.updateAdapter adapter
         
-        let currentWorldRef = ref world
-        let displays = world.Components.ConnectedDisplays |> Map.values |> List.ofSeq
-        let presets = PresetSystem.listPresets world
+        let currentAppStateRef = ref appState
+        let displays = appState.ConnectedDisplays |> Map.values |> List.ofSeq
+        let presets = AppState.listPresets appState
         
         printfn "DEBUG: Creating content with displays:"
         displays |> List.iter (fun display ->
@@ -129,33 +141,32 @@ module MainContentPanel =
         
         // Display change handler - now functional
         let onDisplayChanged displayId (updatedDisplay: DisplayInfo) =
-            let currentWorld = !currentWorldRef
-            let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
+            let currentAppState = !currentAppStateRef
+            let updatedAppState = AppState.addDisplay updatedDisplay currentAppState
             
-            let allDisplays = updatedComponents.ConnectedDisplays |> Map.values |> List.ofSeq
+            let allDisplays = updatedAppState.ConnectedDisplays |> Map.values |> List.ofSeq
             let newConfig = {
                 Displays = allDisplays
                 Name = "Current"
                 CreatedAt = DateTime.Now
             }
-            let componentsWithConfig = Components.setCurrentConfiguration newConfig updatedComponents
-            let newWorld = { currentWorld with Components = componentsWithConfig }
+            let finalAppState = AppState.setCurrentConfiguration newConfig updatedAppState
             
-            currentWorldRef := newWorld
-            UIState.updateWorld newWorld
+            currentAppStateRef := finalAppState
+            UIState.updateAppState finalAppState
             printfn "Display %s moved to (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
         
         // Preset click handler
         let onPresetClick (presetName: string) =
             if presetName = "SAVE_NEW" then
-                let dialog = createPresetSaveDialog colors (!currentWorldRef)
+                let dialog = createPresetSaveDialog colors (!currentAppStateRef)
                 dialog.ShowDialog(UIState.getMainWindow() |> Option.defaultValue null) |> ignore
             else
                 // Load existing preset
                 printfn "Loading preset: %s" presetName
                 
-                let currentWorld = !currentWorldRef
-                match Map.tryFind presetName (!currentWorldRef).Components.SavedPresets with
+                let currentAppState = !currentAppStateRef
+                match AppState.getPreset presetName (!currentAppStateRef) with
                 | Some preset ->
                     printfn "Debug: Loaded preset %s with %d displays" preset.Name preset.Displays.Length
                     
@@ -191,15 +202,15 @@ module MainContentPanel =
                             printfn "Debug: Skipping disabled display %s" display.Id
                     )
                     
-                    // Update components after processing all displays
-                    let updatedComponents = 
-                        preset.Displays |> List.fold (fun components display ->
-                            Components.addDisplay display components
-                        ) (!currentWorldRef).Components
+                    // Update app state after processing all displays
+                    let updatedAppState = 
+                        preset.Displays |> List.fold (fun state display ->
+                            AppState.addDisplay display state
+                        ) (!currentAppStateRef)
                     
-                    let newWorld = { currentWorld with Components = updatedComponents }
-                    currentWorldRef := newWorld
-                    UIState.updateWorld newWorld
+                    let finalAppState = AppState.setCurrentConfiguration preset updatedAppState
+                    currentAppStateRef := finalAppState
+                    UIState.updateAppState finalAppState
                     
                     printfn "Debug: Preset application completed, refreshing UI"
                     refreshMainWindowContent ()
@@ -218,14 +229,13 @@ module MainContentPanel =
         // Display toggle handler - now functional
         let onDisplayToggle (displayId: DisplayId) (enabled: bool) =
             printfn "Toggle display %s to %b" displayId enabled
-            let currentWorld = !currentWorldRef
-            match Map.tryFind displayId (!currentWorldRef).Components.ConnectedDisplays with
+            let currentAppState = !currentAppStateRef
+            match Map.tryFind displayId (!currentAppStateRef).ConnectedDisplays with
             | Some display ->
                 let updatedDisplay = { display with IsEnabled = enabled }
-                let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
-                let newWorld = { currentWorld with Components = updatedComponents }
-                currentWorldRef := newWorld
-                UIState.updateWorld newWorld
+                let updatedAppState = AppState.addDisplay updatedDisplay (!currentAppStateRef)
+                currentAppStateRef := updatedAppState
+                UIState.updateAppState updatedAppState
                 
                 // Apply to physical display
                 match WindowsDisplaySystem.setDisplayEnabled displayId enabled with
@@ -253,7 +263,7 @@ module MainContentPanel =
                         | Error err -> printfn "Failed to set as primary: %s" err
                     
                     // Update the display info and refresh UI
-                    match Map.tryFind displayId (!currentWorldRef).Components.ConnectedDisplays with
+                    match Map.tryFind displayId (!currentAppStateRef).ConnectedDisplays with
                     | Some existingDisplay ->
                         let updatedDisplay = { 
                             existingDisplay with 
@@ -261,10 +271,9 @@ module MainContentPanel =
                                 Orientation = orientation
                                 IsPrimary = isPrimary 
                         }
-                        let updatedComponents = Components.addDisplay updatedDisplay (!currentWorldRef).Components
-                        let newWorld = { (!currentWorldRef) with Components = updatedComponents }
-                        currentWorldRef := newWorld
-                        UIState.updateWorld newWorld
+                        let updatedAppState = AppState.addDisplay updatedDisplay (!currentAppStateRef)
+                        currentAppStateRef := updatedAppState
+                        UIState.updateAppState updatedAppState
                         refreshMainWindowContent ()
                     | None -> ()
                 | Error err ->

@@ -38,19 +38,20 @@ module WindowManager =
                 
                 match presetIndex with
                 | Some index ->
-                    let availablePresets = PresetSystem.listPresets (UIState.getCurrentWorld())
+                    let availablePresets = AppState.listPresets (UIState.getCurrentAppState())
                     if index < availablePresets.Length then
                         let presetName = availablePresets.[index]
                         printfn "Debug: Keyboard shortcut triggered - loading preset: %s (Ctrl+Shift+%d)" presetName (index + 1)
                         
                         // Use the same logic as the preset click handler
-                        match Map.tryFind presetName (UIState.getCurrentWorld()).Components.SavedPresets with
+                        match AppState.getPreset presetName (UIState.getCurrentAppState()) with
                         | Some config ->
                             printfn "Debug: Found preset config with %d displays" config.Displays.Length
                             printfn "Debug: ========== APPLYING PRESET: %s ==========" presetName
                             
-                            let updatedWorld = PresetSystem.loadPreset presetName (UIState.getCurrentWorld())
-                            UIState.updateWorld updatedWorld
+                            match AppState.loadPreset presetName (UIState.getCurrentAppState()) with
+                            | Some updatedAppState -> UIState.updateAppState updatedAppState
+                            | None -> printfn "Debug: Failed to load preset %s" presetName
                             
                             // Apply each display's settings to the physical hardware (functional approach)
                             let applyDisplaySettings display =
@@ -88,13 +89,14 @@ module WindowManager =
                             // Apply settings to all displays
                             config.Displays |> List.iter applyDisplaySettings
                             
-                            // Update components using fold instead of mutable accumulator
-                            let updatedComponents = 
+                            // Update app state using fold instead of mutable accumulator
+                            let updatedAppState = 
                                 config.Displays 
-                                |> List.fold (fun acc display -> Components.addDisplay display acc) 
-                                             (UIState.getCurrentWorld()).Components
+                                |> List.fold (fun acc display -> AppState.addDisplay display acc) 
+                                             (UIState.getCurrentAppState())
                             
-                            UIState.updateWorld { UIState.getCurrentWorld() with Components = updatedComponents }
+                            let finalAppState = AppState.setCurrentConfiguration config updatedAppState
+                            UIState.updateAppState finalAppState
                             
                             printfn "Debug: Preset application completed, refreshing UI"
                             refreshMainWindowContent ()
@@ -110,7 +112,7 @@ module WindowManager =
         )
     
     // Create the main application window
-    let createMainWindow (world: World) (adapter: IPlatformAdapter) =
+    let createMainWindow (appState: AppState) (adapter: IPlatformAdapter) =
         let window = Window()
         window.Title <- "DisplaySwitch-Pro"
         window.Width <- 1200.0
@@ -130,7 +132,7 @@ module WindowManager =
         setupKeyboardShortcuts window
         
         // Create and set the main content
-        let content = MainContentPanel.createMainContentPanel world adapter
+        let content = MainContentPanel.createMainContentPanel appState adapter
         window.Content <- content
         
         window

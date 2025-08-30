@@ -87,6 +87,40 @@ dotnet test --filter "FullyQualifiedName~snappingTests"
 - Primary display changes may need elevated privileges on some systems
 - Testing should be done on native Windows environment for full functionality
 
+**🔴 CRITICAL ISSUE - Display Enable/Disable Not Working (As of Latest Test):**
+
+**Problem**: Display 4 (SAM Q80A TV) cannot be enabled through any of the 5 implemented strategies.
+
+**Error Details**:
+1. CCD API finds the display path but reports "no associated mode information" (modeInfoIdx = 0xFFFFFFFF)
+2. ChangeDisplaySettingsEx returns DISP_CHANGE_FAILED (-1) even though 170 display modes are enumerable
+3. SetDisplayConfig with topology extend/force enumeration returns ERROR_INVALID_PARAMETER
+
+**Potential Solutions to Investigate**:
+1. **Mode Info Assignment**: The CCD path lacks mode information. Need to:
+   - Create and populate DISPLAYCONFIG_MODE_INFO entries for the inactive display
+   - Use QueryDisplayConfig with QDC_DATABASE_CURRENT to get persisted configurations
+   - Manually assign mode indices to the path before calling SetDisplayConfig
+
+2. **Alternative Windows APIs**:
+   - Try `DisplayConfigSetDeviceInfo` to set display properties
+   - Use `ChangeDisplaySettingsEx` with CDS_RESET flag alone (without NORESET sequence)
+   - Investigate `SetDisplayAutoRotationPreferences` API
+
+3. **Display State Persistence**:
+   - The display may need to be "attached" before being enabled
+   - Try setting DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE flag
+   - Use SDC_PATH_PERSIST_IF_REQUIRED flag with SetDisplayConfig
+
+4. **Driver/Hardware Considerations**:
+   - The TV (DISPLAY4) may require HDMI handshake or EDID refresh
+   - Try disconnecting/reconnecting display virtually using device manager APIs
+   - May need to trigger display driver reload
+
+5. **Manual Workaround**:
+   - Use Windows Settings or Display Settings programmatically (shell execute)
+   - Call DisplaySwitch.exe /extend as a fallback
+
 ### Test Coverage
 - Display system basic operations
 - Component system (add/update displays)
