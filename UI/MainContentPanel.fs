@@ -70,10 +70,15 @@ module MainContentPanel =
                     }
                     let updatedAppState = AppState.savePreset name config currentAppState
                     UIState.updateAppState updatedAppState
-                    printfn "Saving preset: %s" name
-                    dialog.Close()
-                    printfn "Preset saved successfully"
-                    refreshMainWindowContent ()
+                    
+                    // Save to disk
+                    match PresetManager.savePresetsToDisk updatedAppState.SavedPresets with
+                    | Ok () -> 
+                        printfn "Preset saved successfully: %s" name
+                        dialog.Close()
+                        refreshMainWindowContent ()
+                    | Error err -> 
+                        printfn "Failed to save preset to disk: %s" err
         )
         
         panel.Children.Add(textBox)
@@ -100,11 +105,15 @@ module MainContentPanel =
                 }
                 let updatedAppState = AppState.savePreset name config currentAppState
                 UIState.updateAppState updatedAppState
-                printfn "Saving preset: %s" name
-                dialog.Close()
                 
-                printfn "Preset saved successfully"
-                refreshMainWindowContent ()
+                // Save to disk
+                match PresetManager.savePresetsToDisk updatedAppState.SavedPresets with
+                | Ok () -> 
+                    printfn "Preset saved successfully: %s" name
+                    dialog.Close()
+                    refreshMainWindowContent ()
+                | Error err -> 
+                    printfn "Failed to save preset to disk: %s" err
         )
         buttonPanel.Children.Add(saveButton)
         
@@ -165,60 +174,30 @@ module MainContentPanel =
                 // Load existing preset
                 printfn "Loading preset: %s" presetName
                 
-                let currentAppState = !currentAppStateRef
                 match AppState.getPreset presetName (!currentAppStateRef) with
                 | Some preset ->
-                    printfn "Debug: Loaded preset %s with %d displays" preset.Name preset.Displays.Length
-                    
-                    // Process preset displays functionally
-                    preset.Displays |> List.iter (fun display ->
-                        printfn "Debug: Processing preset display %s - Resolution: %dx%d @ %dHz, Orientation: %A" 
-                                display.Id display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate display.Orientation
-                        
-                        // Apply settings to physical display if it's enabled
-                        if display.IsEnabled then
-                            let mode = { 
-                                Width = display.Resolution.Width
-                                Height = display.Resolution.Height
-                                RefreshRate = display.Resolution.RefreshRate
-                                BitsPerPixel = 32 
-                            }
+                    // Validate preset can be applied
+                    match PresetManager.validatePreset preset with
+                    | Ok () ->
+                        printfn "Applying preset: %s" preset.Name
+                        match PresetManager.applyPreset preset with
+                        | Ok () -> 
+                            printfn "Successfully applied preset %s" preset.Name
                             
-                            printfn "Debug: Applying physical display mode to %s" display.Id
-                            match WindowsDisplaySystem.applyDisplayMode display.Id mode display.Orientation with
-                            | Ok () ->
-                                printfn "Debug: Successfully applied display mode to %s" display.Id
-                                
-                                // Set as primary if specified
-                                if display.IsPrimary then
-                                    printfn "Debug: Setting %s as primary display" display.Id
-                                    match WindowsDisplaySystem.setPrimaryDisplay display.Id with
-                                    | Ok () -> printfn "Debug: Successfully set %s as primary" display.Id
-                                    | Error err -> printfn "Debug: Failed to set %s as primary: %s" display.Id err
-                                    
-                            | Error err ->
-                                printfn "Debug: Failed to apply display mode to %s: %s" display.Id err
-                        else
-                            printfn "Debug: Skipping disabled display %s" display.Id
-                    )
-                    
-                    // Update app state after processing all displays
-                    let updatedAppState = 
-                        preset.Displays |> List.fold (fun state display ->
-                            AppState.addDisplay display state
-                        ) (!currentAppStateRef)
-                    
-                    let finalAppState = AppState.setCurrentConfiguration preset updatedAppState
-                    currentAppStateRef := finalAppState
-                    UIState.updateAppState finalAppState
-                    
-                    printfn "Debug: Preset application completed, refreshing UI"
-                    refreshMainWindowContent ()
-                    
-                    printfn "Debug: Loading preset %s completed successfully" presetName
-                    
+                            // Update UI state to reflect the applied preset
+                            let updatedAppState = AppState.setCurrentConfiguration preset (!currentAppStateRef)
+                            currentAppStateRef := updatedAppState
+                            UIState.updateAppState updatedAppState
+                            refreshMainWindowContent ()
+                            
+                        | Error err -> 
+                            printfn "Failed to apply preset %s: %s" preset.Name err
+                            
+                    | Error err ->
+                        printfn "Cannot apply preset %s: %s" preset.Name err
+                            
                 | None ->
-                    printfn "Debug: Preset %s not found!" presetName
+                    printfn "Preset %s not found!" presetName
 
         // Create the display canvas
         let displayCanvas = DisplayCanvas.createDisplayCanvas displays onDisplayChanged
@@ -371,6 +350,71 @@ module MainContentPanel =
         centerHeaderText.VerticalAlignment <- VerticalAlignment.Center
         centerHeader.Child <- centerHeaderText
         centerContent.Children.Add(centerHeader)
+        
+        // Apply button for position changes
+        let applyPositionButton = Border()
+        applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
+        applyPositionButton.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
+        applyPositionButton.BorderThickness <- Thickness(1.0)
+        applyPositionButton.CornerRadius <- CornerRadius(6.0)
+        applyPositionButton.Padding <- Thickness(15.0, 8.0)
+        applyPositionButton.Margin <- Thickness(10.0, 5.0, 10.0, 5.0)
+        applyPositionButton.Cursor <- new Cursor(StandardCursorType.Hand)
+        applyPositionButton.HorizontalAlignment <- HorizontalAlignment.Center
+        DockPanel.SetDock(applyPositionButton, Dock.Top)
+        
+        let applyButtonText = TextBlock()
+        applyButtonText.Text <- "Apply Position Changes"
+        applyButtonText.FontSize <- 13.0
+        applyButtonText.FontWeight <- FontWeight.Medium
+        applyButtonText.Foreground <- Brushes.White
+        applyButtonText.HorizontalAlignment <- HorizontalAlignment.Center
+        applyButtonText.VerticalAlignment <- VerticalAlignment.Center
+        applyPositionButton.Child <- applyButtonText
+        
+        // Apply button click handler
+        applyPositionButton.PointerPressed.Add(fun _ ->
+            printfn "Applying display position changes to Windows..."
+            
+            // Get current display positions from canvas
+            let currentDisplays = (!currentAppStateRef).ConnectedDisplays |> Map.values |> List.ofSeq
+            let enabledDisplays = currentDisplays |> List.filter (fun d -> d.IsEnabled)
+            let displayPositions = enabledDisplays |> List.map (fun d -> (d.Id, d.Position))
+            
+            if not displayPositions.IsEmpty then
+                match DisplayControl.applyMultipleDisplayPositions displayPositions with
+                | Ok () -> 
+                    printfn "Successfully applied all position changes"
+                    applyButtonText.Text <- "✓ Applied"
+                    applyPositionButton.Background <- SolidColorBrush(colors.Success) :> IBrush
+                    
+                    // Reset button text after 2 seconds
+                    let timer = System.Threading.Timer((fun _ ->
+                        Dispatcher.UIThread.InvokeAsync(fun () ->
+                            applyButtonText.Text <- "Apply Position Changes"
+                            applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
+                        ) |> ignore
+                    ), null, 2000, System.Threading.Timeout.Infinite)
+                    ()
+                    
+                | Error err -> 
+                    printfn "Failed to apply position changes: %s" err
+                    applyButtonText.Text <- "✗ Failed"
+                    applyPositionButton.Background <- SolidColorBrush(colors.Error) :> IBrush
+                    
+                    // Reset button text after 3 seconds
+                    let timer = System.Threading.Timer((fun _ ->
+                        Dispatcher.UIThread.InvokeAsync(fun () ->
+                            applyButtonText.Text <- "Apply Position Changes"
+                            applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
+                        ) |> ignore
+                    ), null, 3000, System.Threading.Timeout.Infinite)
+                    ()
+            else
+                printfn "No enabled displays to apply positions for"
+        )
+        
+        centerContent.Children.Add(applyPositionButton)
         
         // Center canvas content
         centerContent.Children.Add(displayCanvas)

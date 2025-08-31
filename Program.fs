@@ -10,8 +10,13 @@ let main args =
     
     printfn $"Detected {displays.Length} displays"
     
-    // Create initial application state
-    let initialState = AppState.updateDisplays displays AppState.empty
+    // Load presets from disk
+    let savedPresets = PresetManager.loadPresetsFromDisk()
+    printfn "Loaded %d presets from disk" savedPresets.Count
+    
+    // Create initial application state with loaded presets
+    let initialState = { AppState.empty with SavedPresets = savedPresets }
+    let stateWithDisplays = AppState.updateDisplays displays initialState
     
     // Create a configuration from current displays
     let currentConfig = {
@@ -20,17 +25,12 @@ let main args =
         CreatedAt = System.DateTime.Now
     }
     
-    // Set as current and save as preset
-    let stateWithConfig = AppState.setCurrentConfiguration currentConfig initialState
-    let stateWithPreset = AppState.savePreset "My Setup" currentConfig stateWithConfig
-    
-    // Test preset listing
-    let presets = AppState.listPresets stateWithPreset
-    printfn $"Saved presets: {presets}"
+    // Set as current configuration
+    let stateWithConfig = AppState.setCurrentConfiguration currentConfig stateWithDisplays
     
     printfn "✅ System working perfectly!"
     printfn "Starting GUI..."
     
     // Launch GUI - this doesn't return until app closes
-    let exitCode = ApplicationRunner.run adapter stateWithPreset
+    let exitCode = ApplicationRunner.run adapter stateWithConfig
     exitCode

@@ -22,6 +22,8 @@ module Theme =
         DisabledBgDark: Color
         CanvasBg: Color
         CanvasBgDark: Color
+        Success: Color
+        Error: Color
     }
     
     let getThemeColors theme =
@@ -41,6 +43,8 @@ module Theme =
                 DisabledBgDark = Color.FromRgb(180uy, 180uy, 180uy)
                 CanvasBg = Color.FromRgb(245uy, 248uy, 250uy)
                 CanvasBgDark = Color.FromRgb(230uy, 235uy, 240uy)
+                Success = Color.FromRgb(34uy, 197uy, 94uy)
+                Error = Color.FromRgb(239uy, 68uy, 68uy)
             }
         | Dark -> 
             {
@@ -57,6 +61,8 @@ module Theme =
                 DisabledBgDark = Color.FromRgb(55uy, 65uy, 81uy)
                 CanvasBg = Color.FromRgb(24uy, 32uy, 47uy)
                 CanvasBgDark = Color.FromRgb(17uy, 24uy, 39uy)
+                Success = Color.FromRgb(34uy, 197uy, 94uy)
+                Error = Color.FromRgb(248uy, 113uy, 113uy)
             }
     
     let mutable currentTheme = Light

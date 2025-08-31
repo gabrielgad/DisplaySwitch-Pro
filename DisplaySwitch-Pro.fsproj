@@ -25,6 +25,7 @@
     <Compile Include="API/DisplayConfigurationAPI.fs" />
     <Compile Include="API/DisplayDetection.fs" />
     <Compile Include="API/DisplayControl.fs" />
+    <Compile Include="API/PresetManager.fs" />
     <Compile Include="API/WindowsDisplaySystem.fs" />
     <Compile Include="API/PlatformAdapter.fs" />
     

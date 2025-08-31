@@ -50,6 +50,9 @@ module DisplayControl =
         member _.Combine(a, b) = Result.bind (fun () -> b) a
         member _.Delay(f) = f
         member _.Run(f) = f()
+        member _.For(seq, body) = 
+            seq |> Seq.fold (fun acc item -> 
+                Result.bind (fun () -> body item) acc) (Ok ())
 
     let result = ResultBuilder()
     
@@ -161,7 +164,7 @@ module DisplayControl =
     // Helper to get error message from display change result
     let private getDisplayChangeErrorMessage result =
         match result with
-        | x when x = WindowsAPI.DISP.DISP_CHANGE_FAILED -> "Failed to set as primary"
+        | x when x = WindowsAPI.DISP.DISP_CHANGE_FAILED -> "Display settings change failed"
         | x when x = WindowsAPI.DISP.DISP_CHANGE_BADPARAM -> "Invalid parameter"
         | x when x = WindowsAPI.DISP.DISP_CHANGE_BADFLAGS -> "Invalid flags"
         | x when x = WindowsAPI.DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
@@ -199,6 +202,124 @@ module DisplayControl =
             return ()
         }
         |> Result.mapError (sprintf "Failed to set %s as primary: %s" displayId)
+
+    // Compact display positions to eliminate gaps and ensure adjacency
+    let private compactDisplayPositions (displayPositions: (DisplayId * Position * DisplayInfo) list) =
+        printfn "[DEBUG] ========== Compacting Display Positions =========="
+        
+        // Find primary display (should stay at origin or move everything together)
+        let primaryDisplay = displayPositions |> List.tryFind (fun (_, _, info) -> info.IsPrimary)
+        
+        match primaryDisplay with
+        | Some (primaryId, primaryPos, primaryInfo) ->
+            printfn "[DEBUG] Primary display %s found, keeping at (0,0)" primaryId
+            
+            // Separate primary from others
+            let otherDisplays = displayPositions |> List.filter (fun (id, _, _) -> id <> primaryId)
+            
+            // Sort other displays by their intended X position relative to primary
+            let sortedOthers = 
+                otherDisplays 
+                |> List.sortBy (fun (_, pos, _) -> pos.X)
+            
+            // Split into left and right of primary
+            let leftDisplays = sortedOthers |> List.filter (fun (_, pos, _) -> pos.X < primaryPos.X)
+            let rightDisplays = sortedOthers |> List.filter (fun (_, pos, _) -> pos.X >= primaryPos.X)
+            
+            printfn "[DEBUG] Primary: %s, Left: %d displays, Right: %d displays" primaryId leftDisplays.Length rightDisplays.Length
+            
+            // Build layout functionally: [left displays][primary][right displays]
+            
+            // Place displays to the left of primary (negative X coordinates)
+            let leftCompacted, leftmostX = 
+                leftDisplays 
+                |> List.rev // Process right to left so they're adjacent to primary
+                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
+                    let newX = currentX - int info.Resolution.Width
+                    let newPos = { X = newX; Y = 0 }
+                    printfn "[DEBUG] Compacting %s (left): (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
+                    ((id, newPos, info) :: acc, newX)
+                ) ([], 0)
+            
+            // Primary display always at origin
+            let primaryCompacted = [(primaryId, { X = 0; Y = 0 }, primaryInfo)]
+            printfn "[DEBUG] Compacting %s (primary): (%d, %d) -> (0, 0)" primaryId primaryPos.X primaryPos.Y
+            
+            // Place displays to the right of primary  
+            let rightCompacted, _ = 
+                rightDisplays
+                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
+                    let newPos = { X = currentX; Y = 0 }
+                    printfn "[DEBUG] Compacting %s (right): (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
+                    ((id, newPos, info) :: acc, currentX + int info.Resolution.Width)
+                ) ([], int primaryInfo.Resolution.Width)
+            
+            // Combine all displays: left + primary + right
+            leftCompacted @ primaryCompacted @ (rightCompacted |> List.rev)
+            
+        | None ->
+            printfn "[DEBUG] No primary display found, using first display as reference"
+            // If no primary, compact starting from first display at origin
+            let sortedDisplays = 
+                displayPositions 
+                |> List.sortBy (fun (_, pos, _) -> pos.X)
+            
+            let compactedDisplays, _ = 
+                sortedDisplays
+                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
+                    let newPos = { X = currentX; Y = 0 }
+                    let nextX = currentX + int info.Resolution.Width
+                    printfn "[DEBUG] Compacting %s: (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
+                    
+                    ((id, newPos, info) :: acc, nextX)
+                ) ([], 0)
+            
+            compactedDisplays |> List.rev
+
+    // Set display position - applies canvas drag changes to Windows using CCD API
+    let setDisplayPosition (displayId: DisplayId) (newPosition: Position) =
+        result {
+            printfn "[DEBUG] Setting %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
+            return! DisplayConfigurationAPI.updateDisplayPosition displayId newPosition
+        }
+        |> Result.mapError (sprintf "Failed to set %s position: %s" displayId)
+
+    // Apply multiple display positions atomically using CCD API with compacting
+    let applyMultipleDisplayPositions (displayPositions: (DisplayId * Position) list) =
+        result {
+            printfn "[DEBUG] ========== Applying Multiple Display Positions (CCD API) =========="
+            printfn "[DEBUG] Total displays to reposition: %d" displayPositions.Length
+            displayPositions |> List.iteri (fun i (id, pos) ->
+                printfn "[DEBUG] Display %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
+            
+            // Get display info for all displays to enable compacting
+            let connectedDisplays = DisplayDetection.getConnectedDisplays()
+            let displayMap = connectedDisplays |> List.map (fun d -> (d.Id, d)) |> Map.ofList
+            
+            // Build list with display info for compacting
+            let displayPositionsWithInfo = 
+                displayPositions
+                |> List.choose (fun (id, pos) ->
+                    match Map.tryFind id displayMap with
+                    | Some info -> Some (id, pos, info)
+                    | None -> 
+                        printfn "[WARNING] Display %s not found in connected displays" id
+                        None)
+            
+            printfn "[DEBUG] Found display info for %d of %d displays" displayPositionsWithInfo.Length displayPositions.Length
+            
+            // Compact positions to ensure adjacency and eliminate gaps
+            let compactedPositions = compactDisplayPositions displayPositionsWithInfo
+            let finalPositions = compactedPositions |> List.map (fun (id, pos, _) -> (id, pos))
+            
+            printfn "[DEBUG] Compacted positions:"
+            finalPositions |> List.iteri (fun i (id, pos) ->
+                printfn "[DEBUG] Final %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
+            
+            // Apply all position changes atomically using CCD API
+            return! DisplayConfigurationAPI.applyMultiplePositionChanges finalPositions
+        }
+        |> Result.mapError (sprintf "Failed to apply multiple display positions: %s")
 
     // Comprehensive display state validation with Result type
     let private validateDisplayState displayId expectedState maxAttempts =

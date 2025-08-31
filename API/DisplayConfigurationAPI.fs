@@ -15,6 +15,11 @@ module DisplayConfigurationAPI =
         member _.Combine(a, b) = Result.bind (fun () -> b) a
         member _.Delay(f) = f
         member _.Run(f) = f()
+        member _.For(seq, f) = 
+            seq 
+            |> Seq.fold (fun acc item ->
+                Result.bind (fun () -> f item) acc
+            ) (Ok ())
 
     let result = ResultBuilder()
     
@@ -435,3 +440,68 @@ module DisplayConfigurationAPI =
             Error "Display path has invalid target information"  
         else
             Ok path
+
+    // Update display position using CCD API
+    let updateDisplayPosition displayId newPosition =
+        result {
+            printfn "[DEBUG] Updating %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
+            
+            let! (pathArray, modeArray, pathCount, modeCount) = getDisplayPaths false
+            let! (path, pathIndex) = findDisplayPath displayId pathArray pathCount
+            
+            // Find the source mode for this display
+            let sourceIndex = int path.sourceInfo.modeInfoIdx
+            if sourceIndex >= 0 && sourceIndex < int modeCount then
+                let mutable sourceMode = modeArray.[sourceIndex]
+                
+                // Update position in source mode
+                sourceMode.modeInfo.sourceMode.position.x <- int32 newPosition.X
+                sourceMode.modeInfo.sourceMode.position.y <- int32 newPosition.Y
+                modeArray.[sourceIndex] <- sourceMode
+                
+                printfn "[DEBUG] Updated source mode position for %s at index %d" displayId sourceIndex
+                
+                // Apply configuration with updated position
+                let flags = WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE
+                return! applyDisplayConfiguration pathArray modeArray pathCount modeCount flags
+            else
+                return! Error (sprintf "Invalid source mode index %d for display %s" sourceIndex displayId)
+        }
+
+    // Apply multiple position changes atomically using CCD API
+    let applyMultiplePositionChanges (positionChanges: (DisplayId * Position) list) =
+        result {
+            printfn "[DEBUG] Applying %d position changes using CCD API" (List.length positionChanges)
+            
+            let! (pathArray, modeArray, pathCount, modeCount) = getDisplayPaths false
+            
+            // Update all positions in the mode array
+            let updateResults = 
+                positionChanges
+                |> List.map (fun (displayId, newPosition) ->
+                    match findDisplayPath displayId pathArray pathCount with
+                    | Ok (path, _) ->
+                        let sourceIndex = int path.sourceInfo.modeInfoIdx
+                        if sourceIndex >= 0 && sourceIndex < int modeCount then
+                            let mutable sourceMode = modeArray.[sourceIndex]
+                            sourceMode.modeInfo.sourceMode.position.x <- int32 newPosition.X
+                            sourceMode.modeInfo.sourceMode.position.y <- int32 newPosition.Y
+                            modeArray.[sourceIndex] <- sourceMode
+                            printfn "[DEBUG] Updated %s position to (%d, %d)" displayId newPosition.X newPosition.Y
+                            Ok ()
+                        else
+                            printfn "[ERROR] Invalid source mode index %d for %s" sourceIndex displayId
+                            Error (sprintf "Invalid source mode index %d for %s" sourceIndex displayId)
+                    | Error err ->
+                        printfn "[ERROR] Failed to find path for %s: %s" displayId err
+                        Error (sprintf "Failed to find path for %s: %s" displayId err))
+            
+            // Check if all updates succeeded
+            let errors = updateResults |> List.choose (function | Error e -> Some e | Ok _ -> None)
+            if not (List.isEmpty errors) then
+                return! Error (sprintf "Failed to update displays: %s" (String.concat "; " errors))
+            else
+                // Apply all changes atomically
+                let flags = WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE
+                return! applyDisplayConfiguration pathArray modeArray pathCount modeCount flags
+        }
