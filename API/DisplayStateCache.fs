@@ -101,6 +101,15 @@ module DisplayStateCache =
             
             let result = WindowsAPI.EnumDisplaySettings(displayId, -1, &devMode)
             if result then
+                // Get primary display status from Windows API (not position!)
+                let mutable displayDevice = WindowsAPI.DISPLAY_DEVICE()
+                displayDevice.cb <- Marshal.SizeOf(typeof<WindowsAPI.DISPLAY_DEVICE>)
+                let deviceResult = WindowsAPI.EnumDisplayDevices(displayId, 0u, &displayDevice, 0u)
+                let isPrimary = if deviceResult then
+                                    (displayDevice.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_PRIMARY_DEVICE) <> 0u
+                                else
+                                    false // Default to false if we can't get device info
+                
                 let state = {
                     DisplayId = displayId
                     Position = { X = devMode.dmPositionX; Y = devMode.dmPositionY }
@@ -110,7 +119,7 @@ module DisplayStateCache =
                         RefreshRate = int devMode.dmDisplayFrequency
                     }
                     OrientationValue = orientationToInt (windowsToOrientation devMode.dmDisplayOrientation)
-                    IsPrimary = (devMode.dmPositionX = 0 && devMode.dmPositionY = 0) // Simple check
+                    IsPrimary = isPrimary // Use actual Windows API primary flag
                     SavedAt = System.DateTime.Now
                 }
                 

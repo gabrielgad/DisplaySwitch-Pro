@@ -148,8 +148,8 @@ module MainContentPanel =
         displays |> List.iter (fun display ->
             printfn "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled)
         
-        // Display change handler - now functional
-        let onDisplayChanged displayId (updatedDisplay: DisplayInfo) =
+        // Update display position during drag (no compacting)
+        let onDisplayPositionUpdate displayId (updatedDisplay: DisplayInfo) =
             let currentAppState = !currentAppStateRef
             let updatedAppState = AppState.addDisplay updatedDisplay currentAppState
             
@@ -163,7 +163,62 @@ module MainContentPanel =
             
             currentAppStateRef := finalAppState
             UIState.updateAppState finalAppState
-            printfn "Display %s moved to (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
+        
+        // Handle drag completion with compacting
+        let onDisplayDragComplete displayId (updatedDisplay: DisplayInfo) =
+            let currentAppState = !currentAppStateRef
+            let updatedAppState = AppState.addDisplay updatedDisplay currentAppState
+            
+            let allDisplays = updatedAppState.ConnectedDisplays |> Map.values |> List.ofSeq
+            printfn "Display %s drag completed at (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
+            
+            // Apply compacting to show final positions
+            let enabledDisplays = allDisplays |> List.filter (fun d -> d.IsEnabled)
+            if enabledDisplays.Length > 1 then
+                printfn "[DEBUG] Applying compacting after drag completion"
+                
+                // Only compact if there are multiple displays to arrange
+                let displayPositions = enabledDisplays |> List.map (fun d -> (d.Id, d.Position, d))
+                let compactedPositions = DisplayControl.compactDisplayPositions displayPositions
+                
+                printfn "[DEBUG] Compacted positions after drag completion:"
+                compactedPositions |> List.iter (fun (id, newPos, _) ->
+                    printfn "[DEBUG]   %s: (%d, %d)" id newPos.X newPos.Y)
+                
+                // Update displays with compacted positions
+                let compactedDisplays = 
+                    compactedPositions 
+                    |> List.map (fun (id, newPos, info) -> 
+                        { info with Position = newPos })
+                
+                // Create updated app state with compacted positions
+                let compactedAppState = 
+                    (currentAppState, compactedDisplays) ||> List.fold (fun state display -> AppState.addDisplay display state)
+                
+                let newConfig = {
+                    Displays = compactedDisplays @ (allDisplays |> List.filter (fun d -> not d.IsEnabled))
+                    Name = "Current"
+                    CreatedAt = DateTime.Now
+                }
+                let finalAppState = AppState.setCurrentConfiguration newConfig compactedAppState
+                
+                currentAppStateRef := finalAppState
+                UIState.updateAppState finalAppState
+                
+                // Refresh the canvas to show the compacted positions visually
+                refreshMainWindowContent()
+            else
+                // Single display or no enabled displays - no compacting needed
+                let newConfig = {
+                    Displays = allDisplays
+                    Name = "Current"
+                    CreatedAt = DateTime.Now
+                }
+                let finalAppState = AppState.setCurrentConfiguration newConfig updatedAppState
+                
+                currentAppStateRef := finalAppState
+                UIState.updateAppState finalAppState
+        
         
         // Preset click handler
         let onPresetClick (presetName: string) =
@@ -200,7 +255,7 @@ module MainContentPanel =
                     printfn "Preset %s not found!" presetName
 
         // Create the display canvas
-        let displayCanvas = DisplayCanvas.createDisplayCanvas displays onDisplayChanged
+        let displayCanvas = DisplayCanvas.createDisplayCanvas displays onDisplayPositionUpdate onDisplayDragComplete
         
         // Display canvas is already a ScrollViewer from DisplayCanvas.createDisplayCanvas
         displayCanvas.Background <- SolidColorBrush(colors.Background) :> IBrush

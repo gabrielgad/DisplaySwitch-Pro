@@ -203,78 +203,107 @@ module DisplayControl =
         }
         |> Result.mapError (sprintf "Failed to set %s as primary: %s" displayId)
 
-    // Compact display positions to eliminate gaps and ensure adjacency
-    let private compactDisplayPositions (displayPositions: (DisplayId * Position * DisplayInfo) list) =
-        printfn "[DEBUG] ========== Compacting Display Positions =========="
+    // Check if two displays overlap
+    let displaysOverlap (id1, pos1, info1: DisplayInfo) (id2, pos2, info2: DisplayInfo) =
+        if id1 = id2 then false
+        else
+            let x1, y1, w1, h1 = pos1.X, pos1.Y, info1.Resolution.Width, info1.Resolution.Height
+            let x2, y2, w2, h2 = pos2.X, pos2.Y, info2.Resolution.Width, info2.Resolution.Height
+            
+            // Check if rectangles overlap (not just touching at edges)
+            not (x1 + w1 <= x2 || x2 + w2 <= x1 || y1 + h1 <= y2 || y2 + h2 <= y1)
+
+    // Minimal gap removal that preserves canvas layout intent and prevents overlaps
+    let compactDisplayPositions (displayPositions: (DisplayId * Position * DisplayInfo) list) =
+        printfn "[DEBUG] ========== Minimal Compacting (Canvas Layout Preservation) =========="
         
-        // Find primary display (should stay at origin or move everything together)
-        let primaryDisplay = displayPositions |> List.tryFind (fun (_, _, info) -> info.IsPrimary)
-        
-        match primaryDisplay with
-        | Some (primaryId, primaryPos, primaryInfo) ->
-            printfn "[DEBUG] Primary display %s found, keeping at (0,0)" primaryId
-            
-            // Separate primary from others
-            let otherDisplays = displayPositions |> List.filter (fun (id, _, _) -> id <> primaryId)
-            
-            // Sort other displays by their intended X position relative to primary
-            let sortedOthers = 
-                otherDisplays 
-                |> List.sortBy (fun (_, pos, _) -> pos.X)
-            
-            // Split into left and right of primary
-            let leftDisplays = sortedOthers |> List.filter (fun (_, pos, _) -> pos.X < primaryPos.X)
-            let rightDisplays = sortedOthers |> List.filter (fun (_, pos, _) -> pos.X >= primaryPos.X)
-            
-            printfn "[DEBUG] Primary: %s, Left: %d displays, Right: %d displays" primaryId leftDisplays.Length rightDisplays.Length
-            
-            // Build layout functionally: [left displays][primary][right displays]
-            
-            // Place displays to the left of primary (negative X coordinates)
-            let leftCompacted, leftmostX = 
-                leftDisplays 
-                |> List.rev // Process right to left so they're adjacent to primary
-                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
-                    let newX = currentX - int info.Resolution.Width
-                    let newPos = { X = newX; Y = 0 }
-                    printfn "[DEBUG] Compacting %s (left): (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
-                    ((id, newPos, info) :: acc, newX)
-                ) ([], 0)
-            
-            // Primary display always at origin
-            let primaryCompacted = [(primaryId, { X = 0; Y = 0 }, primaryInfo)]
-            printfn "[DEBUG] Compacting %s (primary): (%d, %d) -> (0, 0)" primaryId primaryPos.X primaryPos.Y
-            
-            // Place displays to the right of primary  
-            let rightCompacted, _ = 
-                rightDisplays
-                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
-                    let newPos = { X = currentX; Y = 0 }
-                    printfn "[DEBUG] Compacting %s (right): (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
-                    ((id, newPos, info) :: acc, currentX + int info.Resolution.Width)
-                ) ([], int primaryInfo.Resolution.Width)
-            
-            // Combine all displays: left + primary + right
-            leftCompacted @ primaryCompacted @ (rightCompacted |> List.rev)
-            
-        | None ->
-            printfn "[DEBUG] No primary display found, using first display as reference"
-            // If no primary, compact starting from first display at origin
+        if List.isEmpty displayPositions then
+            []
+        else
+            // Simply sort displays by their canvas position (left-to-right, top-to-bottom)
             let sortedDisplays = 
-                displayPositions 
-                |> List.sortBy (fun (_, pos, _) -> pos.X)
+                displayPositions
+                |> List.sortBy (fun (_, pos, _) -> pos.X, pos.Y)
             
-            let compactedDisplays, _ = 
-                sortedDisplays
-                |> List.fold (fun (acc, currentX) (id, originalPos, info) ->
-                    let newPos = { X = currentX; Y = 0 }
-                    let nextX = currentX + int info.Resolution.Width
-                    printfn "[DEBUG] Compacting %s: (%d, %d) -> (%d, %d)" id originalPos.X originalPos.Y newPos.X newPos.Y
-                    
-                    ((id, newPos, info) :: acc, nextX)
-                ) ([], 0)
+            printfn "[DEBUG] Canvas layout order (preserving user arrangement):"
+            sortedDisplays |> List.iteri (fun i (id, pos, _) ->
+                printfn "[DEBUG] %d. %s at canvas (%d, %d)" i id pos.X pos.Y)
             
-            compactedDisplays |> List.rev
+            // Find minimum X and Y to eliminate any negative offsets
+            let minX = sortedDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
+            let minY = sortedDisplays |> List.map (fun (_, pos, _) -> pos.Y) |> List.min
+            
+            // Shift all displays to eliminate negative coordinates (minimal adjustment)
+            let shiftX = if minX < 0 then -minX else 0
+            let shiftY = if minY < 0 then -minY else 0
+            
+            let compactedDisplays = 
+                if shiftX > 0 || shiftY > 0 then
+                    printfn "[DEBUG] Applying minimal shift: X+%d, Y+%d to eliminate negative coordinates" shiftX shiftY
+                    sortedDisplays |> List.map (fun (id, pos, info) ->
+                        let newPos = { X = pos.X + shiftX; Y = pos.Y + shiftY }
+                        printfn "[DEBUG] %s: (%d, %d) -> (%d, %d)" id pos.X pos.Y newPos.X newPos.Y
+                        (id, newPos, info))
+                else
+                    printfn "[DEBUG] No shift needed - preserving exact canvas positions"
+                    sortedDisplays
+            
+            // Check for overlaps and resolve them
+            let resolveOverlaps displays =
+                let rec resolveOverlapsHelper processedDisplays remainingDisplays =
+                    match remainingDisplays with
+                    | [] -> processedDisplays
+                    | currentDisplay :: rest ->
+                        let (currentId, currentPos, currentInfo) = currentDisplay
+                        
+                        // Check if current display overlaps with any processed display
+                        let overlappingDisplay = 
+                            processedDisplays 
+                            |> List.tryFind (fun processedDisplay -> displaysOverlap currentDisplay processedDisplay)
+                        
+                        let adjustedDisplay = 
+                            match overlappingDisplay with
+                            | Some (_, overlappingPos, overlappingInfo: DisplayInfo) ->
+                                // Move current display to the right of overlapping display
+                                let newX = overlappingPos.X + overlappingInfo.Resolution.Width
+                                let adjustedPos = { currentPos with X = newX }
+                                printfn "[DEBUG] Overlap detected: Moving %s from (%d, %d) to (%d, %d)" 
+                                    currentId currentPos.X currentPos.Y adjustedPos.X adjustedPos.Y
+                                (currentId, adjustedPos, currentInfo)
+                            | None ->
+                                currentDisplay
+                        
+                        resolveOverlapsHelper (adjustedDisplay :: processedDisplays) rest
+                
+                resolveOverlapsHelper [] displays |> List.rev
+            
+            let overlapResolvedDisplays = resolveOverlaps compactedDisplays
+            
+            // Validate coordinates are within Windows limits
+            let hasInvalidCoords = 
+                overlapResolvedDisplays 
+                |> List.exists (fun (_, pos, info: DisplayInfo) -> 
+                    pos.X < -32768 || pos.X > 32767 || 
+                    (pos.X + info.Resolution.Width) > 32767)
+            
+            if hasInvalidCoords then
+                printfn "[DEBUG] WARNING: Coordinates exceed Windows limits (-32768 to +32767)"
+                let minX = overlapResolvedDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
+                let maxXWithWidth = overlapResolvedDisplays |> List.map (fun (_, pos, info: DisplayInfo) -> pos.X + info.Resolution.Width) |> List.max
+                
+                let additionalShift = 
+                    if minX < -32768 then -32768 - minX
+                    elif maxXWithWidth > 32767 then 32767 - maxXWithWidth
+                    else 0
+                
+                if additionalShift <> 0 then
+                    printfn "[DEBUG] Applying additional shift of %d pixels to fit Windows limits" additionalShift
+                    overlapResolvedDisplays |> List.map (fun (id, pos, info) ->
+                        (id, { pos with X = pos.X + additionalShift }, info))
+                else
+                    overlapResolvedDisplays
+            else
+                overlapResolvedDisplays
 
     // Set display position - applies canvas drag changes to Windows using CCD API
     let setDisplayPosition (displayId: DisplayId) (newPosition: Position) =

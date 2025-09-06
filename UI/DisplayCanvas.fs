@@ -14,7 +14,7 @@ module DisplayCanvas =
         StartPoint: Point
     }
     
-    let createDisplayCanvas (displays: DisplayInfo list) (onDisplayChanged: DisplayId -> DisplayInfo -> unit) =
+    let createDisplayCanvas (displays: DisplayInfo list) (onDisplayPositionUpdate: DisplayId -> DisplayInfo -> unit) (onDisplayDragComplete: DisplayId -> DisplayInfo -> unit) =
         let colors = Theme.getCurrentColors()
         let canvas = Canvas()
         
@@ -25,15 +25,31 @@ module DisplayCanvas =
         canvasGradient.GradientStops.Add(GradientStop(colors.CanvasBgDark, 1.0))
         
         canvas.Background <- canvasGradient :> IBrush
-        // Calculate canvas size based on display layout
-        let scale = 0.1
-        let maxX = displays |> List.map (fun d -> d.Position.X + d.Resolution.Width) |> List.max |> float
-        let maxY = displays |> List.map (fun d -> d.Position.Y + d.Resolution.Height) |> List.max |> float
-        let minX = displays |> List.map (fun d -> d.Position.X) |> List.min |> float
-        let minY = displays |> List.map (fun d -> d.Position.Y) |> List.min |> float
         
-        canvas.Width <- Math.Max(800.0, (maxX - minX) * scale + 100.0)
-        canvas.Height <- Math.Max(600.0, (maxY - minY) * scale + 100.0)
+        // Calculate canvas bounds with proper coordinate transformation
+        let scale = 0.1
+        let padding = 50.0  // Padding around displays
+        
+        if not displays.IsEmpty then
+            let maxX = displays |> List.map (fun d -> d.Position.X + d.Resolution.Width) |> List.max |> float
+            let maxY = displays |> List.map (fun d -> d.Position.Y + d.Resolution.Height) |> List.max |> float
+            let minX = displays |> List.map (fun d -> d.Position.X) |> List.min |> float
+            let minY = displays |> List.map (fun d -> d.Position.Y) |> List.min |> float
+            
+            // Canvas coordinate system: (0,0) represents the minimum coordinate
+            let canvasWidth = (maxX - minX) * scale + (padding * 2.0)
+            let canvasHeight = (maxY - minY) * scale + (padding * 2.0)
+            
+            canvas.Width <- Math.Max(800.0, canvasWidth)
+            canvas.Height <- Math.Max(600.0, canvasHeight)
+            
+            // Store coordinate transformation info for display positioning
+            canvas.Tag <- (minX, minY, scale, padding)  // Store transformation parameters
+        else
+            // Default size when no displays
+            canvas.Width <- 800.0
+            canvas.Height <- 600.0
+            canvas.Tag <- (0.0, 0.0, scale, padding)
         
         let intermediateGridSize = 20.0
         let snapProximityThreshold = 25.0
@@ -184,10 +200,53 @@ module DisplayCanvas =
                 let boundedY = Math.Max(0.0, Math.Min(targetY, canvas.Height - movingHeight))
                 (boundedX, boundedY)
 
+        // Update position during drag (no compacting)
         let onPositionChanged displayId (x, y) =
+            // Get coordinate transformation parameters from canvas tag
+            let (minX, minY, scale, padding) = 
+                match canvas.Tag with
+                | :? (float * float * float * float) as transform -> transform
+                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
+            
+            // Convert canvas coordinates back to Windows coordinates
+            let windowsX = int ((x - padding) / scale + minX)
+            let windowsY = int ((y - padding) / scale + minY)
+            
+            // Validate Windows coordinates are within valid ranges (-32768 to +32767)
+            let validatedX = Math.Max(-32768, Math.Min(32767, windowsX))
+            let validatedY = Math.Max(-32768, Math.Min(32767, windowsY))
+            
+            if validatedX <> windowsX || validatedY <> windowsY then
+                printfn "[DEBUG] Position clamped from (%d, %d) to (%d, %d) for display %s" 
+                    windowsX windowsY validatedX validatedY displayId
+            
             let display = displays |> List.find (fun d -> d.Id = displayId)
-            let updatedDisplay = { display with Position = { X = int (x * 10.0); Y = int (y * 10.0) } }
-            onDisplayChanged displayId updatedDisplay
+            let updatedDisplay = { display with Position = { X = validatedX; Y = validatedY } }
+            onDisplayPositionUpdate displayId updatedDisplay
+        
+        // Handle drag completion (with compacting)
+        let onDragComplete displayId (x, y) =
+            printfn "[DEBUG] Drag completed for %s at canvas position (%.1f, %.1f)" displayId x y
+            
+            // Get coordinate transformation parameters from canvas tag
+            let (minX, minY, scale, padding) = 
+                match canvas.Tag with
+                | :? (float * float * float * float) as transform -> transform
+                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
+            
+            // Convert canvas coordinates back to Windows coordinates
+            let windowsX = int ((x - padding) / scale + minX)
+            let windowsY = int ((y - padding) / scale + minY)
+            
+            // Validate Windows coordinates are within valid ranges (-32768 to +32767)
+            let validatedX = Math.Max(-32768, Math.Min(32767, windowsX))
+            let validatedY = Math.Max(-32768, Math.Min(32767, windowsY))
+            
+            let display = displays |> List.find (fun d -> d.Id = displayId)
+            let updatedDisplay = { display with Position = { X = validatedX; Y = validatedY } }
+            
+            // Call the drag completion handler (this will trigger compacting)
+            onDisplayDragComplete displayId updatedDisplay
         
         let createVisualDisplayWithHandlers (display: DisplayInfo) (allVisualDisplays: UIComponents.VisualDisplay list ref) =
             let onDragging (border: Border) (currentPos: float * float) =
@@ -219,22 +278,26 @@ module DisplayCanvas =
                 Canvas.SetLeft(border, snappedX)
                 Canvas.SetTop(border, snappedY)
                 
-                onPositionChanged displayId (snappedX, snappedY)
+                onDragComplete displayId (snappedX, snappedY)
             
             let visualDisplay = UIComponents.createVisualDisplay display (fun _ _ -> ())
             
-            // Position display at its actual Windows coordinates (scaled for canvas)
-            let scale = 0.1
-            // Offset by minimum coordinates to handle negative positions
-            let offsetX = (float display.Position.X - minX) * scale + 50.0 // Add 50px padding
-            let offsetY = (float display.Position.Y - minY) * scale + 50.0 // Add 50px padding
+            // Get coordinate transformation parameters from canvas tag
+            let (minX, minY, scale, padding) = 
+                match canvas.Tag with
+                | :? (float * float * float * float) as transform -> transform
+                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
             
-            // Ensure the display is within canvas bounds
-            let canvasX = Math.Max(0.0, Math.Min(offsetX, canvas.Width - visualDisplay.Border.Width))
-            let canvasY = Math.Max(0.0, Math.Min(offsetY, canvas.Height - visualDisplay.Border.Height))
+            // Transform Windows coordinates to canvas coordinates
+            let canvasX = (float display.Position.X - minX) * scale + padding
+            let canvasY = (float display.Position.Y - minY) * scale + padding
             
-            Canvas.SetLeft(visualDisplay.Border, canvasX)
-            Canvas.SetTop(visualDisplay.Border, canvasY)
+            // Ensure the display is within canvas bounds (with validation)
+            let boundedX = Math.Max(0.0, Math.Min(canvasX, canvas.Width - visualDisplay.Border.Width))
+            let boundedY = Math.Max(0.0, Math.Min(canvasY, canvas.Height - visualDisplay.Border.Height))
+            
+            Canvas.SetLeft(visualDisplay.Border, boundedX)
+            Canvas.SetTop(visualDisplay.Border, boundedY)
             
             // Drag state per visual display
             let dragState = ref { IsDragging = false; StartPoint = Point(0.0, 0.0) }

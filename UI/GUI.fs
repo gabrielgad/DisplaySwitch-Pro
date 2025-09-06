@@ -16,13 +16,16 @@ module GUI =
                 printfn "[DEBUG GUI] Refreshing display information..."
                 let freshDisplays = adapter.GetConnectedDisplays()
                 
-                // Preserve the application-level IsEnabled state from current app state
+                // Preserve the application-level IsEnabled state and user-set positions from current app state
                 let preservedDisplays = 
                     freshDisplays |> List.map (fun freshDisplay ->
                         match Map.tryFind freshDisplay.Id (UIState.getCurrentAppState()).ConnectedDisplays with
                         | Some existingDisplay ->
-                            // Preserve the application-level IsEnabled state
-                            { freshDisplay with IsEnabled = existingDisplay.IsEnabled }
+                            // Preserve the application-level IsEnabled state and user-arranged positions
+                            { freshDisplay with 
+                                IsEnabled = existingDisplay.IsEnabled
+                                Position = existingDisplay.Position  // Preserve compacted positions
+                            }
                         | None ->
                             // New display, keep system state
                             freshDisplay
