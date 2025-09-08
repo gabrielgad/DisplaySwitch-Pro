@@ -47,6 +47,7 @@ module GUI =
     let private initializeModules() =
         MainContentPanel.setRefreshFunction refreshMainWindowContent
         WindowManager.setRefreshFunction refreshMainWindowContent
+        UIComponents.setRefreshFunction refreshMainWindowContent
     
     // Create main window
     let createMainWindow (appState: AppState) (adapter: IPlatformAdapter) =

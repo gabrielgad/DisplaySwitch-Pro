@@ -192,15 +192,68 @@ module DisplayControl =
         else
             Error (getDisplayChangeErrorMessage result)
     
-    // Set display as primary - now more functional
+    // Set display as primary with proper repositioning of all displays
     let setPrimaryDisplay (displayId: DisplayId) =
-        result {
-            printfn "Setting %s as primary display" displayId
-            let! currentDevMode = getCurrentDevMode displayId
-            let! _ = applyPrimarySettings displayId currentDevMode
-            printfn "Successfully set %s as primary display" displayId
-            return ()
-        }
+        try
+            printfn "[DEBUG] Setting %s as primary display with repositioning" displayId
+            
+            // Step 1: Get all current connected displays
+            let currentDisplays = DisplayDetection.getConnectedDisplays()
+            printfn "[DEBUG] Found %d displays for repositioning" currentDisplays.Length
+            
+            // Step 2: Find the new primary display and calculate position offsets
+            match currentDisplays |> List.tryFind (fun d -> d.Id = displayId) with
+            | None -> 
+                Error (sprintf "Display %s not found in connected displays" displayId)
+            | Some newPrimary ->
+                let offsetX = -newPrimary.Position.X
+                let offsetY = -newPrimary.Position.Y
+                printfn "[DEBUG] Primary offset: (%d, %d) -> (0, 0), shifting all by (%d, %d)" 
+                        newPrimary.Position.X newPrimary.Position.Y offsetX offsetY
+                
+                // Step 3: Update each display with CDS_NORESET flag
+                let mutable errorMessage: string option = None
+                for display in currentDisplays do
+                    match errorMessage with
+                    | Some _ -> () // Skip if we already have an error
+                    | None ->
+                        match getCurrentDevMode display.Id with
+                        | Error err -> errorMessage <- Some err
+                        | Ok devMode ->
+                            let mutable updatedDevMode = devMode
+                            
+                            // Calculate new position relative to new primary at (0,0)
+                            let newX = display.Position.X + offsetX
+                            let newY = display.Position.Y + offsetY
+                            updatedDevMode.dmPositionX <- newX
+                            updatedDevMode.dmPositionY <- newY
+                            updatedDevMode.dmFields <- updatedDevMode.dmFields ||| 0x00000020u // DM_POSITION
+                            
+                            let flags = 
+                                if display.Id = displayId then
+                                    printfn "[DEBUG] Setting %s as primary at (%d, %d)" display.Id newX newY
+                                    WindowsAPI.CDS.CDS_SET_PRIMARY ||| WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
+                                else
+                                    printfn "[DEBUG] Repositioning %s to (%d, %d)" display.Id newX newY
+                                    WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
+                            
+                            let changeResult = WindowsAPI.ChangeDisplaySettingsEx(display.Id, &updatedDevMode, IntPtr.Zero, flags, IntPtr.Zero)
+                            if changeResult <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
+                                errorMessage <- Some (sprintf "Failed to update display %s: %s" display.Id (getDisplayChangeErrorMessage changeResult))
+                
+                match errorMessage with
+                | Some err -> Error err
+                | None ->
+                    // Step 4: Apply all changes atomically (using the NULL version of the API)
+                    printfn "[DEBUG] Applying all display changes atomically..."
+                    let finalResult = WindowsAPI.ChangeDisplaySettingsExNull(null, IntPtr.Zero, IntPtr.Zero, 0u, IntPtr.Zero)
+                    if finalResult <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
+                        Error (sprintf "Failed to apply display changes atomically: %s" (getDisplayChangeErrorMessage finalResult))
+                    else
+                        printfn "[SUCCESS] Successfully set %s as primary display with repositioning" displayId
+                        Ok ()
+        with
+        | ex -> Error (sprintf "Exception during primary display change: %s" ex.Message)
         |> Result.mapError (sprintf "Failed to set %s as primary: %s" displayId)
 
     // Check if two displays overlap

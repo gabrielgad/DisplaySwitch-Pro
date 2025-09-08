@@ -11,6 +11,19 @@ open Avalonia.Media
 
 module UIComponents =
     
+    // Refresh function reference - set by the main GUI module
+    let mutable refreshMainWindowContentRef: (unit -> unit) option = None
+    
+    // Set the refresh function reference
+    let setRefreshFunction refreshFunc =
+        refreshMainWindowContentRef <- Some refreshFunc
+    
+    // Helper function to call refresh
+    let private refreshMainWindowContent() =
+        match refreshMainWindowContentRef with
+        | Some refreshFunc -> refreshFunc()
+        | None -> printfn "[WARNING] UIComponents refresh function not set"
+    
     type VisualDisplay = {
         Display: DisplayInfo
         Rectangle: Rectangle
@@ -540,17 +553,37 @@ module UIComponents =
         primaryToggle.Child <- primaryText
         
         primaryToggle.PointerPressed.Add(fun _ ->
-            selectedIsPrimary <- not selectedIsPrimary
-            
-            primaryToggle.Background <- if selectedIsPrimary then 
-                                          SolidColorBrush(colors.Secondary) 
-                                        else 
-                                          SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
-            
-            primaryText.Text <- if selectedIsPrimary then "✓ Primary" else "Set as Primary"
-            primaryText.Foreground <- if selectedIsPrimary then SolidColorBrush(Colors.White) else SolidColorBrush(colors.Text)
-            
-            printfn "DEBUG: Primary display: %b" selectedIsPrimary
+            // Only allow setting as primary, not unsetting (Windows always needs a primary display)
+            if not selectedIsPrimary then
+                selectedIsPrimary <- true
+                
+                printfn "[DEBUG UIComponents] Setting %s as primary display immediately" display.Id
+                
+                // Call the Windows API to actually set as primary
+                match DisplayControl.setPrimaryDisplay display.Id with
+                | Ok () ->
+                    printfn "[SUCCESS] Successfully set %s as primary display" display.Id
+                    
+                    // Update UI state
+                    primaryToggle.Background <- SolidColorBrush(colors.Secondary)
+                    primaryText.Text <- "✓ Primary"
+                    primaryText.Foreground <- SolidColorBrush(Colors.White)
+                    
+                    // Refresh the UI to reflect the primary display change
+                    printfn "[INFO] Primary display set successfully. Refreshing UI to show changes."
+                    
+                    // Call the refresh function to reload display state from Windows and update UI
+                    refreshMainWindowContent()
+                    
+                | Error err ->
+                    printfn "[ERROR] Failed to set %s as primary: %s" display.Id err
+                    // Revert UI state on failure
+                    selectedIsPrimary <- false
+                    primaryToggle.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
+                    primaryText.Text <- "Set as Primary"
+                    primaryText.Foreground <- SolidColorBrush(colors.Text)
+            else
+                printfn "[DEBUG UIComponents] %s is already primary - no action needed" display.Id
         )
         
         primarySection.Children.Add(primaryToggle)
