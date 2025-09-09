@@ -62,13 +62,15 @@ module MainContentPanel =
             if e.Key = Avalonia.Input.Key.Enter then
                 let name = textBox.Text.Trim()
                 if not (String.IsNullOrEmpty(name)) then
-                    let displays = currentAppState.ConnectedDisplays |> Map.values |> List.ofSeq
-                    let config = {
-                        Displays = displays
-                        Name = name
-                        CreatedAt = DateTime.Now
-                    }
-                    let updatedAppState = AppState.savePreset name config currentAppState
+                    // Capture CURRENT Windows display state, not UI state
+                    printfn "[DEBUG] Saving preset '%s' - capturing current Windows configuration..." name
+                    let currentWindowsConfig = PresetManager.getCurrentConfiguration()
+                    let namedConfig = { currentWindowsConfig with Name = name; CreatedAt = DateTime.Now }
+                    
+                    printfn "[DEBUG] Captured configuration with %d displays, hash: %s" 
+                        namedConfig.Displays.Length (namedConfig.ConfigurationHash |> Option.defaultValue "None")
+                    
+                    let updatedAppState = AppState.savePreset name namedConfig currentAppState
                     UIState.updateAppState updatedAppState
                     
                     // Save to disk
@@ -97,13 +99,15 @@ module MainContentPanel =
         saveButton.Click.Add(fun _ ->
             let name = textBox.Text.Trim()
             if not (String.IsNullOrEmpty(name)) then
-                let displays = currentAppState.ConnectedDisplays |> Map.values |> List.ofSeq
-                let config = {
-                    Displays = displays
-                    Name = name
-                    CreatedAt = DateTime.Now
-                }
-                let updatedAppState = AppState.savePreset name config currentAppState
+                // Capture CURRENT Windows display state, not UI state
+                printfn "[DEBUG] Saving preset '%s' - capturing current Windows configuration..." name
+                let currentWindowsConfig = PresetManager.getCurrentConfiguration()
+                let namedConfig = { currentWindowsConfig with Name = name; CreatedAt = DateTime.Now }
+                
+                printfn "[DEBUG] Captured configuration with %d displays, hash: %s" 
+                    namedConfig.Displays.Length (namedConfig.ConfigurationHash |> Option.defaultValue "None")
+                
+                let updatedAppState = AppState.savePreset name namedConfig currentAppState
                 UIState.updateAppState updatedAppState
                 
                 // Save to disk
@@ -154,11 +158,7 @@ module MainContentPanel =
             let updatedAppState = AppState.addDisplay updatedDisplay currentAppState
             
             let allDisplays = updatedAppState.ConnectedDisplays |> Map.values |> List.ofSeq
-            let newConfig = {
-                Displays = allDisplays
-                Name = "Current"
-                CreatedAt = DateTime.Now
-            }
+            let newConfig = DisplayHelpers.createDisplayConfiguration "Current" allDisplays
             let finalAppState = AppState.setCurrentConfiguration newConfig updatedAppState
             
             currentAppStateRef := finalAppState
@@ -195,11 +195,8 @@ module MainContentPanel =
                 let compactedAppState = 
                     (currentAppState, compactedDisplays) ||> List.fold (fun state display -> AppState.addDisplay display state)
                 
-                let newConfig = {
-                    Displays = compactedDisplays @ (allDisplays |> List.filter (fun d -> not d.IsEnabled))
-                    Name = "Current"
-                    CreatedAt = DateTime.Now
-                }
+                let allFinalDisplays = compactedDisplays @ (allDisplays |> List.filter (fun d -> not d.IsEnabled))
+                let newConfig = DisplayHelpers.createDisplayConfiguration "Current" allFinalDisplays
                 let finalAppState = AppState.setCurrentConfiguration newConfig compactedAppState
                 
                 currentAppStateRef := finalAppState
@@ -209,11 +206,7 @@ module MainContentPanel =
                 refreshMainWindowContent()
             else
                 // Single display or no enabled displays - no compacting needed
-                let newConfig = {
-                    Displays = allDisplays
-                    Name = "Current"
-                    CreatedAt = DateTime.Now
-                }
+                let newConfig = DisplayHelpers.createDisplayConfiguration "Current" allDisplays
                 let finalAppState = AppState.setCurrentConfiguration newConfig updatedAppState
                 
                 currentAppStateRef := finalAppState
@@ -239,10 +232,14 @@ module MainContentPanel =
                         | Ok () -> 
                             printfn "Successfully applied preset %s" preset.Name
                             
-                            // Update UI state to reflect the applied preset
-                            let updatedAppState = AppState.setCurrentConfiguration preset (!currentAppStateRef)
+                            // Get actual current Windows display state after preset application
+                            let actualCurrentConfig = PresetManager.getCurrentConfiguration()
+                            let updatedAppState = AppState.setCurrentConfiguration actualCurrentConfig (!currentAppStateRef)
                             currentAppStateRef := updatedAppState
                             UIState.updateAppState updatedAppState
+                            
+                            // Add debug logging to show what's happening
+                            printfn "[DEBUG GUI] Refreshing display information..."
                             refreshMainWindowContent ()
                             
                         | Error err -> 
@@ -324,7 +321,19 @@ module MainContentPanel =
         let displayListView = UIComponents.createDisplayListView displays onDisplayToggle onSettingsClick
         
         // Create preset panel with delete handler
-        let onPresetDelete (presetName: string) = printfn "Delete preset: %s" presetName
+        let onPresetDelete (presetName: string) = 
+            printfn "Deleting preset: %s" presetName
+            let currentAppState = !currentAppStateRef
+            match PresetManager.deletePreset presetName currentAppState.SavedPresets with
+            | Ok updatedPresets ->
+                let updatedAppState = AppState.deletePreset presetName currentAppState
+                let finalAppState = { updatedAppState with SavedPresets = updatedPresets }
+                currentAppStateRef := finalAppState
+                UIState.updateAppState finalAppState
+                printfn "Successfully deleted preset: %s" presetName
+                refreshMainWindowContent()
+            | Error err ->
+                printfn "Failed to delete preset %s: %s" presetName err
         let presetPanel = UIComponents.createPresetPanel presets onPresetClick onPresetDelete
         
         // Split the UI: 3 columns - display info (left), display canvas (center), presets (right)

@@ -86,6 +86,10 @@ type DisplayConfiguration = {
     Name: string
     /// When this configuration was created
     CreatedAt: DateTime
+    /// Total desktop bounds for validation
+    TotalDesktopBounds: (int * int * int * int) option
+    /// Hash of the configuration for change detection
+    ConfigurationHash: string option
 }
 
 /// Comprehensive event model for the display management system
@@ -164,3 +168,40 @@ module DisplayHelpers =
             let maxX = enabledDisplays |> List.map (fun d -> d.Position.X + d.Resolution.Width) |> List.max
             let maxY = enabledDisplays |> List.map (fun d -> d.Position.Y + d.Resolution.Height) |> List.max
             Some (minX, minY, maxX - minX, maxY - minY)
+    
+    /// Generate hash for a display configuration to detect changes
+    let generateConfigurationHash (config: DisplayConfiguration) =
+        let displayHashes = 
+            config.Displays 
+            |> List.sortBy (fun d -> d.Id)  // Sort for consistent hashing
+            |> List.map (fun d -> 
+                sprintf "%s:%d:%d:%d:%d:%b:%b:%A" 
+                    d.Id d.Position.X d.Position.Y 
+                    d.Resolution.Width d.Resolution.Height 
+                    d.IsPrimary d.IsEnabled d.Orientation)
+            |> String.concat "|"
+        
+        use sha256 = System.Security.Cryptography.SHA256.Create()
+        let hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(displayHashes))
+        Convert.ToBase64String(hash).[0..15]  // Take first 16 chars for readability
+    
+    /// Create a complete display configuration with metadata
+    let createDisplayConfiguration (name: string) (displays: DisplayInfo list) =
+        let bounds = getTotalDesktopBounds displays
+        let config = {
+            Displays = displays
+            Name = name
+            CreatedAt = DateTime.Now
+            TotalDesktopBounds = bounds
+            ConfigurationHash = None  // Will be set after creation
+        }
+        let hash = generateConfigurationHash config
+        { config with ConfigurationHash = Some hash }
+    
+    /// Check if two configurations are equivalent
+    let areConfigurationsEquivalent (config1: DisplayConfiguration) (config2: DisplayConfiguration) =
+        match config1.ConfigurationHash, config2.ConfigurationHash with
+        | Some hash1, Some hash2 -> hash1 = hash2
+        | _ -> 
+            // Fallback to manual comparison if hashes aren't available
+            config1.Displays |> List.sortBy (fun d -> d.Id) = (config2.Displays |> List.sortBy (fun d -> d.Id))

@@ -19,11 +19,7 @@ let main args =
     let stateWithDisplays = AppState.updateDisplays displays initialState
     
     // Create a configuration from current displays
-    let currentConfig = {
-        Displays = displays
-        Name = "Current Setup"
-        CreatedAt = System.DateTime.Now
-    }
+    let currentConfig = DisplayHelpers.createDisplayConfiguration "Current Setup" displays
     
     // Set as current configuration
     let stateWithConfig = AppState.setCurrentConfiguration currentConfig stateWithDisplays

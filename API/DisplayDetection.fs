@@ -9,12 +9,36 @@ open WindowsAPI
 // Display enumeration and detection functionality
 module DisplayDetection =
     
-    // Get monitor friendly names using WMI
-    let private getMonitorFriendlyNames() =
+    // WMI monitor information structure
+    type WmiMonitorInfo = {
+        InstanceName: string
+        FriendlyName: string
+        TargetId: uint32 option
+    }
+
+    // Extract target ID from WMI instance name
+    let private extractTargetId (instanceName: string) =
         try
-            let monitors = System.Collections.Generic.List<string>()
+            // Example: "DISPLAY\SAM713F\5&12e08716&0&UID176390_0" → 176390
+            let uidMatch = System.Text.RegularExpressions.Regex.Match(instanceName, @"UID(\d+)")
+            if uidMatch.Success then
+                let targetIdStr = uidMatch.Groups.[1].Value
+                match System.UInt32.TryParse(targetIdStr) with
+                | true, targetId -> Some targetId
+                | false, _ -> None
+            else
+                None
+        with
+        | ex ->
+            printfn "Error extracting target ID from %s: %s" instanceName ex.Message
+            None
+
+    // Get monitor friendly names and target IDs using WMI
+    let private getWmiMonitorInfo() =
+        try
+            let monitors = System.Collections.Generic.List<WmiMonitorInfo>()
             
-            // Query WmiMonitorID for friendly names
+            // Query WmiMonitorID for friendly names and instance names
             use searcher = new ManagementObjectSearcher("root\\wmi", "SELECT * FROM WmiMonitorID")
             use collection = searcher.Get()
             
@@ -51,9 +75,21 @@ module DisplayDetection =
                                 sprintf "%s %s" manufacturer friendlyName
                             else friendlyName
                         
+                        let targetId = extractTargetId instanceName
+                        
+                        let monitorInfo = {
+                            InstanceName = instanceName
+                            FriendlyName = fullName
+                            TargetId = targetId
+                        }
+                        
                         // Add to list - WMI monitors should appear in same order as displays
-                        monitors.Add(fullName)
-                        // printfn "WMI Monitor: %s -> %s" instanceName fullName
+                        monitors.Add(monitorInfo)
+                        
+                        // Debug logging for target ID mapping
+                        match targetId with
+                        | Some id -> printfn "[DEBUG] WMI Monitor: %s -> %s (Target ID: %u)" instanceName fullName id
+                        | None -> printfn "[DEBUG] WMI Monitor: %s -> %s (No Target ID found)" instanceName fullName
                 
                 with ex -> 
                     printfn "Error processing WMI monitor: %s" ex.Message
@@ -62,7 +98,15 @@ module DisplayDetection =
         with
         | ex -> 
             printfn "WMI monitor detection failed: %s" ex.Message
-            System.Collections.Generic.List<string>()
+            System.Collections.Generic.List<WmiMonitorInfo>()
+
+    // Legacy compatibility function for existing code
+    let private getMonitorFriendlyNames() =
+        let wmiInfo = getWmiMonitorInfo()
+        let friendlyNames = System.Collections.Generic.List<string>()
+        for info in wmiInfo do
+            friendlyNames.Add(info.FriendlyName)
+        friendlyNames
     
     // Get all display devices (including inactive ones)
     // Helper function to try getting a single display device at index
@@ -348,3 +392,43 @@ module DisplayDetection =
         | ex -> 
             printfn "Windows display detection failed: %s" ex.Message
             []
+
+    // Create mapping from display ID to correct target ID using WMI data
+    let getDisplayTargetIdMapping() =
+        try
+            printfn "[DEBUG] Building display-to-target ID mapping..."
+            
+            // Get WMI monitor information with target IDs
+            let wmiMonitors = getWmiMonitorInfo()
+            printfn "[DEBUG] Found %d WMI monitor entries" wmiMonitors.Count
+            
+            // Get all display devices (same order as WMI)
+            let allDevices = getAllDisplayDevices()
+            printfn "[DEBUG] Found %d display devices" allDevices.Length
+            
+            // Build mapping by matching display index to WMI index
+            let mapping = 
+                allDevices
+                |> List.mapi (fun index device ->
+                    if index < wmiMonitors.Count then
+                        let wmiInfo = wmiMonitors.[index]
+                        match wmiInfo.TargetId with
+                        | Some targetId ->
+                            printfn "[DEBUG] Mapping %s -> Target ID %u (%s)" device.DeviceName targetId wmiInfo.FriendlyName
+                            Some (device.DeviceName, targetId)
+                        | None ->
+                            printfn "[DEBUG] No target ID found for %s (%s)" device.DeviceName wmiInfo.FriendlyName
+                            None
+                    else
+                        printfn "[DEBUG] No WMI data for %s (index %d >= %d WMI entries)" device.DeviceName index wmiMonitors.Count
+                        None)
+                |> List.choose id
+                |> Map.ofList
+            
+            printfn "[DEBUG] Created mapping for %d displays" (Map.count mapping)
+            mapping
+            
+        with
+        | ex ->
+            printfn "[ERROR] Failed to build display-target ID mapping: %s" ex.Message
+            Map.empty

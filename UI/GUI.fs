@@ -21,10 +21,10 @@ module GUI =
                     freshDisplays |> List.map (fun freshDisplay ->
                         match Map.tryFind freshDisplay.Id (UIState.getCurrentAppState()).ConnectedDisplays with
                         | Some existingDisplay ->
-                            // Preserve the application-level IsEnabled state and user-arranged positions
+                            // Preserve user-arranged positions but use fresh Windows IsEnabled state  
                             { freshDisplay with 
-                                IsEnabled = existingDisplay.IsEnabled
                                 Position = existingDisplay.Position  // Preserve compacted positions
+                                // IsEnabled = freshDisplay.IsEnabled (already correct from Windows)
                             }
                         | None ->
                             // New display, keep system state

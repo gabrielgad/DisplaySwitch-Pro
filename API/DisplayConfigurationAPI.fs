@@ -118,7 +118,12 @@ module DisplayConfigurationAPI =
                     printfn "[DEBUG] Large path array (%d paths) - searching for Source ID %d" pathCount (displayNum - 1)
                 
                 // Strategy 1: Find path with correct Source ID and Target that matches the display
-                let targetId = if displayNum = 4 then 176390u else 0u  // Samsung Q80A TV has target 176390
+                // Get target ID mapping from WMI data
+                let targetIdMapping = DisplayDetection.getDisplayTargetIdMapping()
+                let targetId = Map.tryFind displayId targetIdMapping |> Option.defaultValue 0u
+                
+                printfn "[DEBUG] Display %s -> Target ID lookup: %s" displayId 
+                    (if targetId = 0u then "No mapping found" else sprintf "%u" targetId)
                 
                 let matchingPaths = 
                     [0 .. int pathCount - 1]
