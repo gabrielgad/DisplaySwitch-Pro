@@ -16,19 +16,12 @@ module GUI =
                 printfn "[DEBUG GUI] Refreshing display information..."
                 let freshDisplays = adapter.GetConnectedDisplays()
                 
-                // Preserve the application-level IsEnabled state and user-set positions from current app state
+                // Use fresh Windows positions and states - don't preserve old positions
                 let preservedDisplays = 
                     freshDisplays |> List.map (fun freshDisplay ->
-                        match Map.tryFind freshDisplay.Id (UIState.getCurrentAppState()).ConnectedDisplays with
-                        | Some existingDisplay ->
-                            // Preserve user-arranged positions but use fresh Windows IsEnabled state  
-                            { freshDisplay with 
-                                Position = existingDisplay.Position  // Preserve compacted positions
-                                // IsEnabled = freshDisplay.IsEnabled (already correct from Windows)
-                            }
-                        | None ->
-                            // New display, keep system state
-                            freshDisplay
+                        // Use fresh Windows positions and IsEnabled state
+                        // This ensures UI canvas reflects actual Windows display configuration
+                        freshDisplay
                     )
                 
                 // Update the app state with preserved display data

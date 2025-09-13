@@ -286,16 +286,11 @@ module DisplayDetection =
         monitors
     
     // Convert Windows data to domain types
-    let private convertToDisplayInfo (device: WindowsAPI.DISPLAY_DEVICE) (monitorInfo: WindowsAPI.MONITORINFOEX option) (wmiMonitors: System.Collections.Generic.List<string>) (deviceIndex: int) =
+    let private convertToDisplayInfoWithName (device: WindowsAPI.DISPLAY_DEVICE) (monitorInfo: WindowsAPI.MONITORINFOEX option) (monitorName: string) =
         let isAttached = (device.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) <> 0u
         let isPrimary = (device.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_PRIMARY_DEVICE) <> 0u
         
-        // Try to get friendly name from WMI by index
-        let monitorName = 
-            if deviceIndex < wmiMonitors.Count then
-                wmiMonitors.[deviceIndex]
-            else
-                device.DeviceString
+        // Use the provided monitor name (already resolved from WMI)
         
         // Create friendly display names
         let displayNumber = device.DeviceName.Replace(@"\.\DISPLAY", "")
@@ -349,7 +344,7 @@ module DisplayDetection =
             }
         | None ->
             // Inactive display - position away from active displays to avoid overlap
-            let inactiveOffset = 3000 + (deviceIndex * 2000) // Offset inactive displays to prevent overlap
+            let inactiveOffset = 5000 // Offset inactive displays to prevent overlap
             {
                 Id = device.DeviceName
                 Name = sprintf "%s [Inactive]" fullName
@@ -361,74 +356,124 @@ module DisplayDetection =
                 Capabilities = None // No capabilities for inactive displays (can be populated later if needed)
             }
     
-    // Main function to get all connected displays (following ECS pattern)
+    // Create mapping from display ID to correct target ID using raw Windows API calls
+    let getDisplayTargetIdMapping() =
+        try
+            printfn "[DEBUG] Building display-to-target ID mapping using raw CCD API..."
+            
+            // Use raw Windows API calls to get display paths (avoid module dependency)
+            let mutable pathCount = 0u
+            let mutable modeCount = 0u
+            
+            // Get buffer sizes - use ALL_PATHS to get complete enumeration order
+            let sizeResult = WindowsAPI.GetDisplayConfigBufferSizes(WindowsAPI.QDC.QDC_ALL_PATHS, &pathCount, &modeCount)
+            if sizeResult = 0 then
+                let pathArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_PATH_INFO> (int pathCount)
+                let modeArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_MODE_INFO> (int modeCount)
+                
+                // Query display configuration - use ALL_PATHS to get complete enumeration order
+                let queryResult = WindowsAPI.QueryDisplayConfig(WindowsAPI.QDC.QDC_ALL_PATHS, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
+                if queryResult = 0 then
+                    printfn "[DEBUG] Found %d CCD paths for mapping" pathCount
+                    
+                    // Get WMI monitor information with target IDs  
+                    let wmiMonitors = getWmiMonitorInfo()
+                    let wmiByTargetId = 
+                        wmiMonitors 
+                        |> Seq.choose (fun wmi -> 
+                            match wmi.TargetId with 
+                            | Some targetId -> Some (targetId, wmi.FriendlyName)
+                            | None -> None)
+                        |> Map.ofSeq
+                    
+                    // Build mapping by matching CCD source IDs to Windows display device names
+                    // Only include paths that have corresponding WMI hardware information
+                    let mapping = 
+                        pathArray
+                        |> Array.take (int pathCount)
+                        |> Array.choose (fun path ->
+                            // Convert source ID to Windows display device name (sourceId 0 = DISPLAY1, etc.)
+                            let displayName = sprintf "\\\\.\\DISPLAY%d" (int path.sourceInfo.id + 1)
+                            let targetId = path.targetInfo.id
+                            
+                            // Only include paths that have WMI information (filter out "Unknown" paths)
+                            match Map.tryFind targetId wmiByTargetId with
+                            | Some friendlyName ->
+                                printfn "[DEBUG] CCD Path: %s (Source %d) -> Target ID %u (%s)" displayName (int path.sourceInfo.id) targetId friendlyName
+                                Some (displayName, targetId)
+                            | None ->
+                                printfn "[DEBUG] Skipping CCD Path: %s (Source %d) -> Target ID %u (No WMI data)" displayName (int path.sourceInfo.id) targetId
+                                None)
+                        |> Array.groupBy fst  // Group by display name
+                        |> Array.map (fun (displayName, paths) ->
+                            // If multiple paths for same display, match to correct target ID
+                            let bestPath = 
+                                if Array.length paths > 1 then
+                                    // Get the display number from the name (\\.\DISPLAY4 -> 4)
+                                    let displayNum = displayName.Substring(11) |> int
+                                    // Get WMI monitors in enumeration order (same as Windows display order)
+                                    let wmiList = getWmiMonitorInfo() |> Seq.toList
+                                    if displayNum <= wmiList.Length then
+                                        let expectedWmi = wmiList.[displayNum - 1]
+                                        match expectedWmi.TargetId with
+                                        | Some expectedTargetId ->
+                                            // Find path that matches this display's actual target ID
+                                            paths |> Array.tryFind (fun (_, targetId) -> targetId = expectedTargetId)
+                                            |> Option.defaultValue (paths |> Array.head)
+                                        | None -> paths |> Array.head
+                                    else
+                                        paths |> Array.head
+                                else
+                                    paths |> Array.head
+                            bestPath)
+                        |> Map.ofArray
+                    
+                    printfn "[DEBUG] Created CCD mapping for %d displays" (Map.count mapping)
+                    mapping
+                else
+                    printfn "[ERROR] QueryDisplayConfig failed with code: %d" queryResult
+                    Map.empty
+            else
+                printfn "[ERROR] GetDisplayConfigBufferSizes failed with code: %d" sizeResult
+                Map.empty
+                
+        with
+        | ex ->
+            printfn "[ERROR] Failed to build display-target ID mapping: %s" ex.Message
+            Map.empty
+
+    // Main function to get all connected displays using simple index-based WMI mapping
     let getConnectedDisplays() : DisplayInfo list =
         try
-            // Commented out verbose display detection logging
-            // printfn "Windows display detection: Enumerating all display devices..."
+            printfn "Detecting displays on Win32NT..."
             
-            // Get monitor friendly names from WMI
+            // Get monitor friendly names from WMI (simple approach that works)
             let wmiMonitors = getMonitorFriendlyNames()
-            // printfn "Found %d WMI monitor entries" wmiMonitors.Count
+            printfn "[DEBUG] Found %d WMI monitor entries" wmiMonitors.Count
             
-            // Get all display devices (active and inactive)
+            // Get all display devices (enumerated by Windows) 
             let allDevices = getAllDisplayDevices()
             printfn "Found %d display devices" allDevices.Length
             
             // Get active monitor information
             let activeMonitors = getActiveMonitorInfo()
-            // printfn "Found %d active monitors" activeMonitors.Count
             
-            // Convert to domain types
+            // Convert each display device using simple index-based WMI mapping
             allDevices
             |> List.mapi (fun index device ->
                 let monitorInfo = Map.tryFind device.DeviceName activeMonitors
-                let displayInfo = convertToDisplayInfo device monitorInfo wmiMonitors index
-                // printfn "  %s: %s" displayInfo.Id (if displayInfo.IsEnabled then "ENABLED" else "DISABLED")
-                displayInfo
+                
+                // Get friendly name using simple index-based mapping (proven to work)
+                let monitorName = 
+                    if index < wmiMonitors.Count then
+                        wmiMonitors.[index]
+                    else
+                        device.DeviceString
+                
+                convertToDisplayInfoWithName device monitorInfo monitorName
             )
             
         with
         | ex -> 
             printfn "Windows display detection failed: %s" ex.Message
             []
-
-    // Create mapping from display ID to correct target ID using WMI data
-    let getDisplayTargetIdMapping() =
-        try
-            printfn "[DEBUG] Building display-to-target ID mapping..."
-            
-            // Get WMI monitor information with target IDs
-            let wmiMonitors = getWmiMonitorInfo()
-            printfn "[DEBUG] Found %d WMI monitor entries" wmiMonitors.Count
-            
-            // Get all display devices (same order as WMI)
-            let allDevices = getAllDisplayDevices()
-            printfn "[DEBUG] Found %d display devices" allDevices.Length
-            
-            // Build mapping by matching display index to WMI index
-            let mapping = 
-                allDevices
-                |> List.mapi (fun index device ->
-                    if index < wmiMonitors.Count then
-                        let wmiInfo = wmiMonitors.[index]
-                        match wmiInfo.TargetId with
-                        | Some targetId ->
-                            printfn "[DEBUG] Mapping %s -> Target ID %u (%s)" device.DeviceName targetId wmiInfo.FriendlyName
-                            Some (device.DeviceName, targetId)
-                        | None ->
-                            printfn "[DEBUG] No target ID found for %s (%s)" device.DeviceName wmiInfo.FriendlyName
-                            None
-                    else
-                        printfn "[DEBUG] No WMI data for %s (index %d >= %d WMI entries)" device.DeviceName index wmiMonitors.Count
-                        None)
-                |> List.choose id
-                |> Map.ofList
-            
-            printfn "[DEBUG] Created mapping for %d displays" (Map.count mapping)
-            mapping
-            
-        with
-        | ex ->
-            printfn "[ERROR] Failed to build display-target ID mapping: %s" ex.Message
-            Map.empty

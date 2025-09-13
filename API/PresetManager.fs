@@ -327,16 +327,16 @@ module PresetManager =
             
             // Step 4: Apply display positions using the existing positioning system
             printfn "[DEBUG] Step 4: Applying display positions..."
-            let displayPositions = 
+            let displayPositionsWithInfo = 
                 enabledDisplays 
-                |> List.map (fun d -> (d.Id, d.Position))
+                |> List.map (fun d -> (d.Id, d.Position, d))
             
-            if not displayPositions.IsEmpty then
-                printfn "[DEBUG] Applying positions for %d displays:" displayPositions.Length
-                displayPositions |> List.iter (fun (id, pos) ->
-                    printfn "[DEBUG]   %s -> (%d, %d)" id pos.X pos.Y)
+            if not displayPositionsWithInfo.IsEmpty then
+                printfn "[DEBUG] Applying positions for %d displays:" displayPositionsWithInfo.Length
+                displayPositionsWithInfo |> List.iter (fun (id, pos, info) ->
+                    printfn "[DEBUG]   %s -> (%d, %d), Primary=%b" id pos.X pos.Y info.IsPrimary)
                 
-                match DisplayControl.applyMultipleDisplayPositions displayPositions with
+                match DisplayControl.applyMultipleDisplayPositionsWithInfo displayPositionsWithInfo with
                 | Ok () -> printfn "[SUCCESS] Applied all display positions"
                 | Error err -> printfn "[ERROR] Failed to apply positions: %s" err
             else

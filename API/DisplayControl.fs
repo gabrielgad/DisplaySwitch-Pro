@@ -211,9 +211,28 @@ module DisplayControl =
                 printfn "[DEBUG] Primary offset: (%d, %d) -> (0, 0), shifting all by (%d, %d)" 
                         newPrimary.Position.X newPrimary.Position.Y offsetX offsetY
                 
-                // Step 3: Update each display with CDS_NORESET flag
+                // Step 3: Calculate proper adjacent positions for all displays
+                let newPrimaryWidth = newPrimary.Resolution.Width
+                let currentPrimary = currentDisplays |> List.tryFind (fun d -> d.IsPrimary)
+                
+                // Create smart positioning: new primary at (0,0), old primary adjacent
+                let repositionedDisplays = 
+                    currentDisplays |> List.mapi (fun i display ->
+                        if display.Id = displayId then
+                            // New primary goes to (0, 0)
+                            (display, { X = 0; Y = 0 })
+                        elif display.IsPrimary then
+                            // Old primary goes adjacent to new primary
+                            (display, { X = newPrimaryWidth; Y = 0 })
+                        else
+                            // Other displays stay in reasonable positions or get repositioned logically
+                            let suggestedX = (i + 1) * 1920  // Simple layout for other displays
+                            (display, { X = suggestedX; Y = 0 })
+                    )
+                
+                // Step 4: Apply the repositioning using ChangeDisplaySettingsEx
                 let mutable errorMessage: string option = None
-                for display in currentDisplays do
+                for (display, newPos) in repositionedDisplays do
                     match errorMessage with
                     | Some _ -> () // Skip if we already have an error
                     | None ->
@@ -222,19 +241,16 @@ module DisplayControl =
                         | Ok devMode ->
                             let mutable updatedDevMode = devMode
                             
-                            // Calculate new position relative to new primary at (0,0)
-                            let newX = display.Position.X + offsetX
-                            let newY = display.Position.Y + offsetY
-                            updatedDevMode.dmPositionX <- newX
-                            updatedDevMode.dmPositionY <- newY
+                            updatedDevMode.dmPositionX <- newPos.X
+                            updatedDevMode.dmPositionY <- newPos.Y
                             updatedDevMode.dmFields <- updatedDevMode.dmFields ||| 0x00000020u // DM_POSITION
                             
                             let flags = 
                                 if display.Id = displayId then
-                                    printfn "[DEBUG] Setting %s as primary at (%d, %d)" display.Id newX newY
+                                    printfn "[DEBUG] Setting %s as primary at (%d, %d)" display.Id newPos.X newPos.Y
                                     WindowsAPI.CDS.CDS_SET_PRIMARY ||| WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
                                 else
-                                    printfn "[DEBUG] Repositioning %s to (%d, %d)" display.Id newX newY
+                                    printfn "[DEBUG] Repositioning %s to (%d, %d)" display.Id newPos.X newPos.Y
                                     WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
                             
                             let changeResult = WindowsAPI.ChangeDisplaySettingsEx(display.Id, &updatedDevMode, IntPtr.Zero, flags, IntPtr.Zero)
@@ -266,83 +282,47 @@ module DisplayControl =
             // Check if rectangles overlap (not just touching at edges)
             not (x1 + w1 <= x2 || x2 + w2 <= x1 || y1 + h1 <= y2 || y2 + h2 <= y1)
 
-    // Minimal gap removal that preserves canvas layout intent and prevents overlaps
+    // Compacting that respects the primary display as the centroid at (0,0)
     let compactDisplayPositions (displayPositions: (DisplayId * Position * DisplayInfo) list) =
-        printfn "[DEBUG] ========== Minimal Compacting (Canvas Layout Preservation) =========="
+        printfn "[DEBUG] ========== Primary-Centered Compacting =========="
         
         if List.isEmpty displayPositions then
             []
         else
-            // Simply sort displays by their canvas position (left-to-right, top-to-bottom)
-            let sortedDisplays = 
-                displayPositions
-                |> List.sortBy (fun (_, pos, _) -> pos.X, pos.Y)
+            // Find the primary display - it should be the centroid at (0,0)
+            let primaryDisplay = displayPositions |> List.tryFind (fun (_, _, info) -> info.IsPrimary)
             
-            printfn "[DEBUG] Canvas layout order (preserving user arrangement):"
-            sortedDisplays |> List.iteri (fun i (id, pos, _) ->
-                printfn "[DEBUG] %d. %s at canvas (%d, %d)" i id pos.X pos.Y)
+            // Calculate the final compacted displays
+            let finalDisplays = 
+                match primaryDisplay with
+                | Some (primaryId, primaryPos, _) ->
+                    if primaryPos.X = 0 && primaryPos.Y = 0 then
+                        displayPositions
+                    else
+                        let offsetX = -primaryPos.X
+                        let offsetY = -primaryPos.Y
+                        displayPositions |> List.map (fun (id, pos, info) ->
+                            (id, { X = pos.X + offsetX; Y = pos.Y + offsetY }, info))
+                | None ->
+                    match displayPositions with
+                    | (_, firstPos, _) :: _ ->
+                        let offsetX = -firstPos.X
+                        let offsetY = -firstPos.Y
+                        displayPositions |> List.map (fun (id, pos, info) ->
+                            (id, { X = pos.X + offsetX; Y = pos.Y + offsetY }, info))
+                    | [] -> []
             
-            // Find minimum X and Y to eliminate any negative offsets
-            let minX = sortedDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
-            let minY = sortedDisplays |> List.map (fun (_, pos, _) -> pos.Y) |> List.min
-            
-            // Shift all displays to eliminate negative coordinates (minimal adjustment)
-            let shiftX = if minX < 0 then -minX else 0
-            let shiftY = if minY < 0 then -minY else 0
-            
-            let compactedDisplays = 
-                if shiftX > 0 || shiftY > 0 then
-                    printfn "[DEBUG] Applying minimal shift: X+%d, Y+%d to eliminate negative coordinates" shiftX shiftY
-                    sortedDisplays |> List.map (fun (id, pos, info) ->
-                        let newPos = { X = pos.X + shiftX; Y = pos.Y + shiftY }
-                        printfn "[DEBUG] %s: (%d, %d) -> (%d, %d)" id pos.X pos.Y newPos.X newPos.Y
-                        (id, newPos, info))
-                else
-                    printfn "[DEBUG] No shift needed - preserving exact canvas positions"
-                    sortedDisplays
-            
-            // Check for overlaps and resolve them
-            let resolveOverlaps displays =
-                let rec resolveOverlapsHelper processedDisplays remainingDisplays =
-                    match remainingDisplays with
-                    | [] -> processedDisplays
-                    | currentDisplay :: rest ->
-                        let (currentId, currentPos, currentInfo) = currentDisplay
-                        
-                        // Check if current display overlaps with any processed display
-                        let overlappingDisplay = 
-                            processedDisplays 
-                            |> List.tryFind (fun processedDisplay -> displaysOverlap currentDisplay processedDisplay)
-                        
-                        let adjustedDisplay = 
-                            match overlappingDisplay with
-                            | Some (_, overlappingPos, overlappingInfo: DisplayInfo) ->
-                                // Move current display to the right of overlapping display
-                                let newX = overlappingPos.X + overlappingInfo.Resolution.Width
-                                let adjustedPos = { currentPos with X = newX }
-                                printfn "[DEBUG] Overlap detected: Moving %s from (%d, %d) to (%d, %d)" 
-                                    currentId currentPos.X currentPos.Y adjustedPos.X adjustedPos.Y
-                                (currentId, adjustedPos, currentInfo)
-                            | None ->
-                                currentDisplay
-                        
-                        resolveOverlapsHelper (adjustedDisplay :: processedDisplays) rest
-                
-                resolveOverlapsHelper [] displays |> List.rev
-            
-            let overlapResolvedDisplays = resolveOverlaps compactedDisplays
-            
-            // Validate coordinates are within Windows limits
+            // Validate coordinates are within Windows limits (-32768 to +32767)
             let hasInvalidCoords = 
-                overlapResolvedDisplays 
+                finalDisplays 
                 |> List.exists (fun (_, pos, info: DisplayInfo) -> 
                     pos.X < -32768 || pos.X > 32767 || 
                     (pos.X + info.Resolution.Width) > 32767)
             
             if hasInvalidCoords then
                 printfn "[DEBUG] WARNING: Coordinates exceed Windows limits (-32768 to +32767)"
-                let minX = overlapResolvedDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
-                let maxXWithWidth = overlapResolvedDisplays |> List.map (fun (_, pos, info: DisplayInfo) -> pos.X + info.Resolution.Width) |> List.max
+                let minX = finalDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
+                let maxXWithWidth = finalDisplays |> List.map (fun (_, pos, info: DisplayInfo) -> pos.X + info.Resolution.Width) |> List.max
                 
                 let additionalShift = 
                     if minX < -32768 then -32768 - minX
@@ -351,12 +331,12 @@ module DisplayControl =
                 
                 if additionalShift <> 0 then
                     printfn "[DEBUG] Applying additional shift of %d pixels to fit Windows limits" additionalShift
-                    overlapResolvedDisplays |> List.map (fun (id, pos, info) ->
+                    finalDisplays |> List.map (fun (id, pos, info) ->
                         (id, { pos with X = pos.X + additionalShift }, info))
                 else
-                    overlapResolvedDisplays
+                    finalDisplays
             else
-                overlapResolvedDisplays
+                finalDisplays
 
     // Set display position - applies canvas drag changes to Windows using CCD API
     let setDisplayPosition (displayId: DisplayId) (newPosition: Position) =
@@ -366,7 +346,28 @@ module DisplayControl =
         }
         |> Result.mapError (sprintf "Failed to set %s position: %s" displayId)
 
-    // Apply multiple display positions atomically using CCD API with compacting
+    // Apply multiple display positions atomically using CCD API with compacting (with provided display info)
+    let applyMultipleDisplayPositionsWithInfo (displayPositionsWithInfo: (DisplayId * Position * DisplayInfo) list) =
+        result {
+            printfn "[DEBUG] ========== Applying Multiple Display Positions (CCD API with Preset Info) =========="
+            printfn "[DEBUG] Total displays to reposition: %d" displayPositionsWithInfo.Length
+            displayPositionsWithInfo |> List.iteri (fun i (id, pos, info) ->
+                printfn "[DEBUG] Display %d: %s -> (%d, %d), Primary=%b" (i+1) id pos.X pos.Y info.IsPrimary)
+            
+            // Compact positions using preset display info (ensures correct primary detection)
+            let compactedPositions = compactDisplayPositions displayPositionsWithInfo
+            let finalPositions = compactedPositions |> List.map (fun (id, pos, _) -> (id, pos))
+            
+            printfn "[DEBUG] Compacted positions:"
+            finalPositions |> List.iteri (fun i (id, pos) ->
+                printfn "[DEBUG] Final %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
+            
+            // Apply all position changes atomically using CCD API
+            return! DisplayConfigurationAPI.applyMultiplePositionChanges finalPositions
+        }
+        |> Result.mapError (sprintf "Failed to apply multiple display positions: %s")
+
+    // Apply multiple display positions atomically using CCD API with compacting (legacy version)
     let applyMultipleDisplayPositions (displayPositions: (DisplayId * Position) list) =
         result {
             printfn "[DEBUG] ========== Applying Multiple Display Positions (CCD API) =========="
@@ -390,18 +391,9 @@ module DisplayControl =
             
             printfn "[DEBUG] Found display info for %d of %d displays" displayPositionsWithInfo.Length displayPositions.Length
             
-            // Compact positions to ensure adjacency and eliminate gaps
-            let compactedPositions = compactDisplayPositions displayPositionsWithInfo
-            let finalPositions = compactedPositions |> List.map (fun (id, pos, _) -> (id, pos))
-            
-            printfn "[DEBUG] Compacted positions:"
-            finalPositions |> List.iteri (fun i (id, pos) ->
-                printfn "[DEBUG] Final %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
-            
-            // Apply all position changes atomically using CCD API
-            return! DisplayConfigurationAPI.applyMultiplePositionChanges finalPositions
+            // Use the new function with info
+            return! applyMultipleDisplayPositionsWithInfo displayPositionsWithInfo
         }
-        |> Result.mapError (sprintf "Failed to apply multiple display positions: %s")
 
     // Comprehensive display state validation with Result type
     let private validateDisplayState displayId expectedState maxAttempts =

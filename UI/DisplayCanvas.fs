@@ -26,30 +26,22 @@ module DisplayCanvas =
         
         canvas.Background <- canvasGradient :> IBrush
         
-        // Calculate canvas bounds with proper coordinate transformation
-        let scale = 0.1
-        let padding = 50.0  // Padding around displays
+        // Reasonably sized canvas centered on primary display
+        let canvasWidth = 1200.0
+        let canvasHeight = 800.0
+        canvas.Width <- canvasWidth
+        canvas.Height <- canvasHeight
         
-        if not displays.IsEmpty then
-            let maxX = displays |> List.map (fun d -> d.Position.X + d.Resolution.Width) |> List.max |> float
-            let maxY = displays |> List.map (fun d -> d.Position.Y + d.Resolution.Height) |> List.max |> float
-            let minX = displays |> List.map (fun d -> d.Position.X) |> List.min |> float
-            let minY = displays |> List.map (fun d -> d.Position.Y) |> List.min |> float
-            
-            // Canvas coordinate system: (0,0) represents the minimum coordinate
-            let canvasWidth = (maxX - minX) * scale + (padding * 2.0)
-            let canvasHeight = (maxY - minY) * scale + (padding * 2.0)
-            
-            canvas.Width <- Math.Max(800.0, canvasWidth)
-            canvas.Height <- Math.Max(600.0, canvasHeight)
-            
-            // Store coordinate transformation info for display positioning
-            canvas.Tag <- (minX, minY, scale, padding)  // Store transformation parameters
-        else
-            // Default size when no displays
-            canvas.Width <- 800.0
-            canvas.Height <- 600.0
-            canvas.Tag <- (0.0, 0.0, scale, padding)
+        // Use consistent scale that works well for typical display arrangements
+        let scale = 0.1
+        
+        // Center coordinates: Primary display (0,0) goes to center of canvas
+        let centerX = canvasWidth / 2.0
+        let centerY = canvasHeight / 2.0
+        
+        // Store transformation: (centerX, centerY, scale)
+        // Primary display at Windows (0,0) maps to canvas (centerX, centerY)
+        canvas.Tag <- (centerX, centerY, scale)
         
         let intermediateGridSize = 20.0
         let snapProximityThreshold = 25.0
@@ -203,14 +195,15 @@ module DisplayCanvas =
         // Update position during drag (no compacting)
         let onPositionChanged displayId (x, y) =
             // Get coordinate transformation parameters from canvas tag
-            let (minX, minY, scale, padding) = 
+            let (centerX, centerY, scale) = 
                 match canvas.Tag with
-                | :? (float * float * float * float) as transform -> transform
-                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
+                | :? (float * float * float) as transform -> transform
+                | _ -> (600.0, 400.0, 0.1)  // Fallback values
             
             // Convert canvas coordinates back to Windows coordinates
-            let windowsX = int ((x - padding) / scale + minX)
-            let windowsY = int ((y - padding) / scale + minY)
+            // Canvas center (centerX, centerY) = Windows (0, 0) for primary display
+            let windowsX = int ((x - centerX) / scale)
+            let windowsY = int ((y - centerY) / scale)
             
             // Validate Windows coordinates are within valid ranges (-32768 to +32767)
             let validatedX = Math.Max(-32768, Math.Min(32767, windowsX))
@@ -229,14 +222,15 @@ module DisplayCanvas =
             printfn "[DEBUG] Drag completed for %s at canvas position (%.1f, %.1f)" displayId x y
             
             // Get coordinate transformation parameters from canvas tag
-            let (minX, minY, scale, padding) = 
+            let (centerX, centerY, scale) = 
                 match canvas.Tag with
-                | :? (float * float * float * float) as transform -> transform
-                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
+                | :? (float * float * float) as transform -> transform
+                | _ -> (600.0, 400.0, 0.1)  // Fallback values
             
             // Convert canvas coordinates back to Windows coordinates
-            let windowsX = int ((x - padding) / scale + minX)
-            let windowsY = int ((y - padding) / scale + minY)
+            // Canvas center (centerX, centerY) = Windows (0, 0) for primary display
+            let windowsX = int ((x - centerX) / scale)
+            let windowsY = int ((y - centerY) / scale)
             
             // Validate Windows coordinates are within valid ranges (-32768 to +32767)
             let validatedX = Math.Max(-32768, Math.Min(32767, windowsX))
@@ -283,14 +277,15 @@ module DisplayCanvas =
             let visualDisplay = UIComponents.createVisualDisplay display (fun _ _ -> ())
             
             // Get coordinate transformation parameters from canvas tag
-            let (minX, minY, scale, padding) = 
+            let (centerX, centerY, scale) = 
                 match canvas.Tag with
-                | :? (float * float * float * float) as transform -> transform
-                | _ -> (0.0, 0.0, 0.1, 50.0)  // Fallback values
+                | :? (float * float * float) as transform -> transform
+                | _ -> (600.0, 400.0, 0.1)  // Fallback values
             
             // Transform Windows coordinates to canvas coordinates
-            let canvasX = (float display.Position.X - minX) * scale + padding
-            let canvasY = (float display.Position.Y - minY) * scale + padding
+            // Windows (0, 0) for primary display maps to canvas center (centerX, centerY)
+            let canvasX = (float display.Position.X * scale) + centerX
+            let canvasY = (float display.Position.Y * scale) + centerY
             
             // Ensure the display is within canvas bounds (with validation)
             let boundedX = Math.Max(0.0, Math.Min(canvasX, canvas.Width - visualDisplay.Border.Width))

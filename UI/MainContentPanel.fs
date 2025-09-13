@@ -202,8 +202,8 @@ module MainContentPanel =
                 currentAppStateRef := finalAppState
                 UIState.updateAppState finalAppState
                 
-                // Refresh the canvas to show the compacted positions visually
-                refreshMainWindowContent()
+                // Refresh the UI with updated display positions (without re-detecting from Windows)
+                printfn "[DEBUG GUI] UI refreshed with %d displays" (List.length compactedDisplays)
             else
                 // Single display or no enabled displays - no compacting needed
                 let newConfig = DisplayHelpers.createDisplayConfiguration "Current" allDisplays
