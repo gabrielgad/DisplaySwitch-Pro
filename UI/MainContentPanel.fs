@@ -458,7 +458,7 @@ module MainContentPanel =
                             applyButtonText.Text <- "Apply Position Changes"
                             applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
                         ) |> ignore
-                    ), null, 2000, System.Threading.Timeout.Infinite)
+                    ), null, 2000, System.Threading.Timeout.Infinite) // UI refresh timer
                     ()
                     
                 | Error err -> 
@@ -472,7 +472,7 @@ module MainContentPanel =
                             applyButtonText.Text <- "Apply Position Changes"
                             applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
                         ) |> ignore
-                    ), null, 3000, System.Threading.Timeout.Infinite)
+                    ), null, 3000, System.Threading.Timeout.Infinite) // Preset apply feedback timer
                     ()
             else
                 printfn "No enabled displays to apply positions for"

@@ -6,6 +6,17 @@ open System.Management
 open System.Runtime.InteropServices
 open WindowsAPI
 
+// Configuration constants for display detection
+module private DetectionConstants =
+    // Positioning constants
+    let InactiveDisplayOffset = 5000 // Pixels to offset inactive displays to prevent overlap
+    
+    // Fallback display values
+    let DefaultDisplayWidth = 1920
+    let DefaultDisplayHeight = 1080
+    let DefaultRefreshRate = 60
+    let DefaultBitsPerPixel = 32
+
 // Display enumeration and detection functionality
 module DisplayDetection =
     
@@ -313,7 +324,7 @@ module DisplayDetection =
                     { Width = settings.Width; Height = settings.Height; RefreshRate = settings.RefreshRate }
                 | None -> 
                     printfn "Using fallback resolution for %s: %dx%d @ 60Hz" device.DeviceName width height
-                    { Width = width; Height = height; RefreshRate = 60 }
+                    { Width = width; Height = height; RefreshRate = DetectionConstants.DefaultRefreshRate }
             
             // Get all available display modes for active displays
             let availableModes = getAllDisplayModes device.DeviceName
@@ -322,7 +333,7 @@ module DisplayDetection =
                     let currentMode = 
                         match actualSettings with
                         | Some settings -> settings
-                        | None -> { Width = width; Height = height; RefreshRate = 60; BitsPerPixel = 32 }
+                        | None -> { Width = width; Height = height; RefreshRate = DetectionConstants.DefaultRefreshRate; BitsPerPixel = DetectionConstants.DefaultBitsPerPixel }
                     
                     Some {
                         DisplayId = device.DeviceName
@@ -344,11 +355,11 @@ module DisplayDetection =
             }
         | None ->
             // Inactive display - position away from active displays to avoid overlap
-            let inactiveOffset = 5000 // Offset inactive displays to prevent overlap
+            let inactiveOffset = DetectionConstants.InactiveDisplayOffset
             {
                 Id = device.DeviceName
                 Name = sprintf "%s [Inactive]" fullName
-                Resolution = { Width = 1920; Height = 1080; RefreshRate = 60 }
+                Resolution = { Width = DetectionConstants.DefaultDisplayWidth; Height = DetectionConstants.DefaultDisplayHeight; RefreshRate = DetectionConstants.DefaultRefreshRate }
                 Position = { X = inactiveOffset; Y = 0 } // Position away from active displays
                 Orientation = Landscape
                 IsPrimary = isPrimary

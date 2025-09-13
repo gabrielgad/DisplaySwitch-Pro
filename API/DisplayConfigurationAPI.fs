@@ -146,14 +146,36 @@ module DisplayConfigurationAPI =
                 | [] ->
                     printfn "[DEBUG] No source ID match for display %d, trying alternative strategies" displayNum
                     
-                    // Strategy 2: For DISPLAY4, try known working path indices from logs
-                    if displayNum = 4 && pathCount > 6u then
-                        let path = paths.[6] // Based on logs showing DISPLAY4 at path index 6
-                        printfn "[DEBUG] Using hardcoded path index 6 for DISPLAY4 based on logs"
-                        printfn "[DEBUG] Path 6: Source %d -> Target %d, Flags: 0x%08X" path.sourceInfo.id path.targetInfo.id path.flags
-                        Ok (path, 6)
+                    // Strategy 2: Search all paths for matching target ID when source ID fails
+                    if targetId <> 0u then
+                        printfn "[DEBUG] Source ID failed, searching all paths for target ID %u" targetId
+                        let targetMatchingPaths = 
+                            [0 .. int pathCount - 1]
+                            |> List.choose (fun i -> 
+                                let path = paths.[i]
+                                if path.targetInfo.id = targetId then
+                                    printfn "[DEBUG] Found target ID match at path %d: Source %d -> Target %d" 
+                                            i path.sourceInfo.id path.targetInfo.id
+                                    Some (path, i)
+                                else
+                                    None)
+                        
+                        match targetMatchingPaths with
+                        | (path, index) :: _ -> 
+                            printfn "[DEBUG] Using target ID match at path %d for display %s" index displayId
+                            Ok (path, index)
+                        | [] ->
+                            printfn "[DEBUG] No target ID match found, using fallback strategy"
+                            // Strategy 3: Use direct mapping as fallback
+                            let pathIndex = displayNum - 1 // Convert to 0-based
+                            if pathIndex >= 0 && pathIndex < int pathCount then
+                                let path = paths.[pathIndex]
+                                printfn "[DEBUG] Using direct index mapping: path %d for display %s" pathIndex displayId
+                                Ok (path, pathIndex)
+                            else
+                                Error (sprintf "No valid path found for display %s (checked source ID and direct index)" displayId)
                     else
-                        // Strategy 3: Use direct mapping as fallback
+                        // Strategy 3: Use direct mapping as fallback when no target ID available
                         let pathIndex = displayNum - 1 // Convert to 0-based
                         if pathIndex >= 0 && pathIndex < int pathCount then
                             let path = paths.[pathIndex]

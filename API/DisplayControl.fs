@@ -32,11 +32,33 @@ type EnableStrategy =
     | CCDTopologyExtend  
     | CCDMinimalPaths
     | CCDDirectPath
-    | TVSpecificActivation
     | DEVMODEDirect
     | DEVMODEWithReset
     | HardwareReset
     | DisplaySwitchFallback
+
+// Configuration constants for display operations
+module private DisplayConstants =
+    // Preferred display modes in order of preference (width, height, refresh rate)
+    let PreferredModes = [
+        // 60Hz preferred modes
+        (3840, 2160, 60); (1920, 1080, 60); (1280, 720, 60); (1024, 768, 60)
+        // 30Hz fallbacks for compatibility
+        (3840, 2160, 30); (1920, 1080, 30); (1280, 720, 30); (1024, 768, 30)
+    ]
+    
+    // Default values for fallback scenarios
+    let DefaultRefreshRate = 60
+    let DefaultBitsPerPixel = 32
+    
+    // Timeout and delay constants
+    let ValidationMaxAttempts = 5
+    let ValidationBaseDelay = 500 // Base delay in milliseconds
+    let ValidationMaxDelay = 4000 // Maximum delay cap
+    let HardwareResetDelay = 2000
+    let DisplaySwitchTimeout = 5000
+    let DisplaySwitchSettleDelay = 3000
+    let TestModeDisplayTime = 15000
 
 // High-level display control operations
 module DisplayControl =
@@ -225,14 +247,22 @@ module DisplayControl =
                             // Old primary goes adjacent to new primary
                             (display, { X = newPrimaryWidth; Y = 0 })
                         else
-                            // Other displays stay in reasonable positions or get repositioned logically
-                            let suggestedX = (i + 1) * 1920  // Simple layout for other displays
-                            (display, { X = suggestedX; Y = 0 })
+                            // Other displays positioned based on cumulative width for proper spacing
+                            let cumulativeWidth = 
+                                currentDisplays 
+                                |> List.take i
+                                |> List.sumBy (fun d -> d.Resolution.Width)
+                            (display, { X = cumulativeWidth; Y = 0 })
                     )
                 
                 // Step 4: Apply the repositioning using ChangeDisplaySettingsEx
+                // Process new primary display first, then others
+                let sortedDisplays = 
+                    repositionedDisplays 
+                    |> List.sortBy (fun (display, _) -> if display.Id = displayId then 0 else 1)
+                
                 let mutable errorMessage: string option = None
-                for (display, newPos) in repositionedDisplays do
+                for (display, newPos) in sortedDisplays do
                     match errorMessage with
                     | Some _ -> () // Skip if we already have an error
                     | None ->
@@ -248,6 +278,8 @@ module DisplayControl =
                             let flags = 
                                 if display.Id = displayId then
                                     printfn "[DEBUG] Setting %s as primary at (%d, %d)" display.Id newPos.X newPos.Y
+                                    // Clear dmFields for primary - we only want to set primary flag, not change resolution
+                                    updatedDevMode.dmFields <- 0u
                                     WindowsAPI.CDS.CDS_SET_PRIMARY ||| WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
                                 else
                                     printfn "[DEBUG] Repositioning %s to (%d, %d)" display.Id newPos.X newPos.Y
@@ -480,7 +512,7 @@ module DisplayControl =
                 | Error msg when attempt = maxAttempts -> 
                     Error msg
                 | Error msg ->
-                    let delay = min (500 * (1 <<< (attempt - 1))) 4000  // 500ms, 1s, 2s, 4s, cap at 4s
+                    let delay = min (DisplayConstants.ValidationBaseDelay * (1 <<< (attempt - 1))) DisplayConstants.ValidationMaxDelay
                     printfn "[DEBUG] Validation attempt %d failed (%s), retrying in %dms..." attempt msg delay
                     System.Threading.Thread.Sleep(delay)
                     tryWithBackoff (attempt + 1)
@@ -507,7 +539,7 @@ module DisplayControl =
         if availableModes.IsEmpty then
             Error (sprintf "No display modes available for %s" displayId)
         else
-            let preferredModes = [(3840, 2160, 60); (1920, 1080, 60); (1280, 720, 60)]
+            let preferredModes = DisplayConstants.PreferredModes
             let findMode (w, h, r) = availableModes |> List.tryFind (fun m -> m.Width = w && m.Height = h && m.RefreshRate = r)
             let bestMode = 
                 preferredModes 
@@ -527,26 +559,6 @@ module DisplayControl =
         else
             Error (sprintf "Failed to restore saved state (%d)" result)
     
-    // Helper to enable display with auto-detected mode
-    let private enableWithAutoMode displayId bestMode =
-        let mutable devMode = WindowsAPI.DEVMODE()
-        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
-        devMode.dmPelsWidth <- uint32 bestMode.Width
-        devMode.dmPelsHeight <- uint32 bestMode.Height
-        devMode.dmDisplayFrequency <- uint32 bestMode.RefreshRate
-        devMode.dmBitsPerPel <- uint32 bestMode.BitsPerPixel
-        devMode.dmDisplayOrientation <- WindowsAPI.DMDO.DMDO_DEFAULT
-        devMode.dmPositionX <- 3840
-        devMode.dmPositionY <- 0
-        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
-        
-        let result = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-        if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-            printfn "[DEBUG] SUCCESS: Display enabled with auto-detected settings!"
-            Ok ()
-        else
-            Error (getDisplayChangeErrorMessage result)
-    
     // Pure function to calculate optimal position for newly enabled display
     let private calculateOptimalPosition displayId =
         let connectedDisplays = DisplayDetection.getConnectedDisplays()
@@ -558,6 +570,27 @@ module DisplayControl =
             // Find rightmost display and place new display to its right
             let rightmostDisplay = enabledDisplays |> List.maxBy (fun d -> d.Position.X + d.Resolution.Width)
             (rightmostDisplay.Position.X + rightmostDisplay.Resolution.Width, rightmostDisplay.Position.Y)
+
+    // Helper to enable display with auto-detected mode
+    let private enableWithAutoMode displayId bestMode =
+        let mutable devMode = WindowsAPI.DEVMODE()
+        devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
+        devMode.dmPelsWidth <- uint32 bestMode.Width
+        devMode.dmPelsHeight <- uint32 bestMode.Height
+        devMode.dmDisplayFrequency <- uint32 bestMode.RefreshRate
+        devMode.dmBitsPerPel <- uint32 bestMode.BitsPerPixel
+        devMode.dmDisplayOrientation <- WindowsAPI.DMDO.DMDO_DEFAULT
+        let (optimalX, optimalY) = calculateOptimalPosition displayId
+        devMode.dmPositionX <- optimalX
+        devMode.dmPositionY <- optimalY
+        devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
+        
+        let result = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+        if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
+            printfn "[DEBUG] SUCCESS: Display enabled with auto-detected settings!"
+            Ok ()
+        else
+            Error (getDisplayChangeErrorMessage result)
 
     // Strategy implementation functions
     let private executeStrategy strategy displayId =
@@ -642,40 +675,6 @@ module DisplayControl =
                     | Error err -> Error err
                 | Error err -> Error err
                 
-            | TVSpecificActivation ->
-                printfn "[DEBUG] TV-Specific Activation: Special handling for TV displays..."
-                // Check if this is a Samsung TV (Q80A) based on the display ID or name
-                let isTVDisplay = displayId.Contains("DISPLAY4") // Our known TV display
-                if isTVDisplay then
-                    printfn "[DEBUG] Detected Samsung Q80A TV - using TV-specific activation sequence"
-                    
-                    // Strategy for TV: Get current active configuration and add TV display
-                    match DisplayConfigurationAPI.getDisplayPaths false with  // Get only active paths first
-                    | Ok (activePaths, activeModes, activePathCount, activeModeCount) ->
-                        match DisplayConfigurationAPI.getDisplayPaths true with  // Get all paths to find TV
-                        | Ok (allPaths, allModes, allPathCount, allModeCount) ->
-                            match DisplayConfigurationAPI.findDisplayPathBySourceId displayId allPaths allPathCount with
-                            | Ok (tvPath, tvPathIndex) ->
-                                // Create a configuration with current active displays + TV
-                                let combinedPaths = Array.append activePaths [|tvPath|]
-                                let mutable activeTvPath = tvPath
-                                activeTvPath.flags <- WindowsAPI.DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE
-                                activeTvPath.targetInfo.targetAvailable <- 1
-                                combinedPaths.[int activePathCount] <- activeTvPath
-                                
-                                printfn "[DEBUG] TV configuration: %d active paths + TV = %d total paths" activePathCount (Array.length combinedPaths)
-                                
-                                // Use longer timeout for TV displays
-                                DisplayConfigurationAPI.applyDisplayConfiguration combinedPaths activeModes (uint32 (Array.length combinedPaths)) activeModeCount 
-                                       (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
-                                        WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE)
-                            | Error err -> Error err
-                        | Error err -> Error err
-                    | Error err -> Error err
-                else
-                    printfn "[DEBUG] Not a TV display - skipping TV-specific activation"
-                    Error "Not a TV display"
-                
             | CCDTopologyExtend ->
                 printfn "[DEBUG] CCD Topology: Applying extend topology with improved flags..."
                 DisplayConfigurationAPI.applyDisplayConfiguration [||] [||] 0u 0u
@@ -758,7 +757,7 @@ module DisplayControl =
                 match DisplayConfigurationAPI.applyDisplayConfiguration [||] [||] 0u 0u
                        (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_FORCE_MODE_ENUMERATION ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES) with
                 | Ok _ ->
-                    System.Threading.Thread.Sleep(2000)
+                    System.Threading.Thread.Sleep(DisplayConstants.HardwareResetDelay)
                     Ok ()
                 | Error err -> Error err
                 
@@ -774,11 +773,11 @@ module DisplayControl =
                     startInfo.RedirectStandardError <- true
                     
                     use proc = System.Diagnostics.Process.Start(startInfo)
-                    let _ = proc.WaitForExit(5000) // Wait up to 5 seconds
+                    let _ = proc.WaitForExit(DisplayConstants.DisplaySwitchTimeout)
                     
                     if proc.ExitCode = 0 then
                         printfn "[DEBUG] DisplaySwitch.exe completed successfully"
-                        System.Threading.Thread.Sleep(3000) // Give Windows time to apply changes
+                        System.Threading.Thread.Sleep(DisplayConstants.DisplaySwitchSettleDelay)
                         Ok ()
                     else
                         Error (sprintf "DisplaySwitch.exe failed with exit code: %d" proc.ExitCode)
@@ -790,13 +789,13 @@ module DisplayControl =
 
     // Enhanced multi-strategy display enable with comprehensive validation
     let private tryEnableDisplay displayId =
-        let strategies = [CCDTargeted; CCDModePopulation; CCDMinimalPaths; CCDDirectPath; TVSpecificActivation; CCDTopologyExtend; DEVMODEDirect; DEVMODEWithReset; HardwareReset; DisplaySwitchFallback]
+        let strategies = [CCDTargeted; CCDModePopulation; CCDMinimalPaths; CCDDirectPath; CCDTopologyExtend; DEVMODEDirect; DEVMODEWithReset; HardwareReset; DisplaySwitchFallback]
         
         let tryStrategyWithValidation strategy =
             match executeStrategy strategy displayId with
             | Ok _ ->
                 printfn "[DEBUG] Strategy %A executed, validating display state..." strategy
-                match validateDisplayState displayId true 5 with
+                match validateDisplayState displayId true DisplayConstants.ValidationMaxAttempts with
                 | Ok validationResult ->
                     if validationResult.IsEnabled then
                         printfn "[DEBUG] SUCCESS: Strategy %A worked! Display enabled and validated." strategy
@@ -827,7 +826,7 @@ module DisplayControl =
         printfn "[DEBUG] Available strategies: %A" strategies
         tryStrategies strategies
     
-    // Disable display using CCD API for proper TV handling
+    // Disable display using CCD API
     let private disableDisplay displayId =
         let stateSaved = DisplayStateCache.saveDisplayState displayId
         if stateSaved then
@@ -835,7 +834,7 @@ module DisplayControl =
         else
             printfn "[DEBUG] Warning: Failed to save display state"
         
-        // Use CCD API to properly disable the display (especially for TVs)
+        // Use CCD API to properly disable the display
         printfn "[DEBUG] Using CCD API to disable display %s" displayId
         match DisplayConfigurationAPI.getDisplayPaths true with  // Get all paths including the one to disable
         | Ok (pathArray, modeArray, pathCount, modeCount) ->
@@ -937,7 +936,7 @@ module DisplayControl =
                         printfn "[DEBUG] Test mode applied successfully, waiting 15 seconds..."
                         
                         // Wait for 15 seconds
-                        do! Async.Sleep(15000)
+                        do! Async.Sleep(DisplayConstants.TestModeDisplayTime)
                         
                         // Revert to original mode
                         printfn "[DEBUG] Reverting to original mode..."
