@@ -453,7 +453,7 @@ module MainContentPanel =
                     applyPositionButton.Background <- SolidColorBrush(colors.Success) :> IBrush
                     
                     // Reset button text after 2 seconds
-                    let timer = System.Threading.Timer((fun _ ->
+                    let timer = new System.Threading.Timer((fun _ ->
                         Dispatcher.UIThread.InvokeAsync(fun () ->
                             applyButtonText.Text <- "Apply Position Changes"
                             applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush
@@ -467,7 +467,7 @@ module MainContentPanel =
                     applyPositionButton.Background <- SolidColorBrush(colors.Error) :> IBrush
                     
                     // Reset button text after 3 seconds
-                    let timer = System.Threading.Timer((fun _ ->
+                    let timer = new System.Threading.Timer((fun _ ->
                         Dispatcher.UIThread.InvokeAsync(fun () ->
                             applyButtonText.Text <- "Apply Position Changes"
                             applyPositionButton.Background <- SolidColorBrush(colors.Primary) :> IBrush

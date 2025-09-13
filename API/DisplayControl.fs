@@ -219,9 +219,10 @@ module DisplayControl =
         try
             printfn "[DEBUG] Setting %s as primary display with repositioning" displayId
             
-            // Step 1: Get all current connected displays
-            let currentDisplays = DisplayDetection.getConnectedDisplays()
-            printfn "[DEBUG] Found %d displays for repositioning" currentDisplays.Length
+            // Step 1: Get only ACTIVE connected displays (exclude inactive ones)
+            let allDisplays = DisplayDetection.getConnectedDisplays()
+            let currentDisplays = allDisplays |> List.filter (fun d -> d.IsEnabled)
+            printfn "[DEBUG] Found %d total displays, %d active displays for repositioning" allDisplays.Length currentDisplays.Length
             
             // Step 2: Find the new primary display and calculate position offsets
             match currentDisplays |> List.tryFind (fun d -> d.Id = displayId) with

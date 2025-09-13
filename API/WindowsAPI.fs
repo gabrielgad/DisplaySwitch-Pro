@@ -1,5 +1,7 @@
 namespace DisplaySwitchPro
 
+#nowarn "9" // Suppress unverifiable IL code warnings for P/Invoke structs
+
 open System
 open System.Runtime.InteropServices
 
