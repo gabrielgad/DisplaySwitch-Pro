@@ -2,26 +2,10 @@ namespace DisplaySwitchPro
 
 open System
 open WindowsAPI
+open ResultBuilder
 
 // CCD (Connecting and Configuring Displays) API helper functions
 module DisplayConfigurationAPI =
-    
-    // Result computation expression builder (shared with DisplayControl)
-    type ResultBuilder() =
-        member _.Bind(x, f) = Result.bind f x
-        member _.Return(x) = Ok x
-        member _.ReturnFrom(x) = x
-        member _.Zero() = Ok ()
-        member _.Combine(a, b) = Result.bind (fun () -> b) a
-        member _.Delay(f) = f
-        member _.Run(f) = f()
-        member _.For(seq, f) = 
-            seq 
-            |> Seq.fold (fun acc item ->
-                Result.bind (fun () -> f item) acc
-            ) (Ok ())
-
-    let result = ResultBuilder()
     
     // Helper functions for functional API calls
     let private getBufferSizes includeInactive =

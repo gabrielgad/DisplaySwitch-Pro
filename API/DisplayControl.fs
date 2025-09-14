@@ -7,6 +7,7 @@ open WindowsAPI
 open DisplayStateCache
 open DisplayConfigurationAPI
 open DisplayDetection
+open ResultBuilder
 
 // Enhanced error types for display operations
 type DisplayError = 
@@ -62,21 +63,6 @@ module private DisplayConstants =
 
 // High-level display control operations
 module DisplayControl =
-    
-    // Result computation expression builder
-    type ResultBuilder() =
-        member _.Bind(x, f) = Result.bind f x
-        member _.Return(x) = Ok x
-        member _.ReturnFrom(x) = x
-        member _.Zero() = Ok ()
-        member _.Combine(a, b) = Result.bind (fun () -> b) a
-        member _.Delay(f) = f
-        member _.Run(f) = f()
-        member _.For(seq, body) = 
-            seq |> Seq.fold (fun acc item -> 
-                Result.bind (fun () -> body item) acc) (Ok ())
-
-    let result = ResultBuilder()
     
     // Helper functions for functional display mode application
     let private getCurrentDevMode displayId =
@@ -180,6 +166,33 @@ module DisplayControl =
             do! testAndApplyMode displayId targetDevMode
             
             printfn "[DEBUG] SUCCESS: Display mode applied successfully!"
+            return ()
+        }
+
+    // Set display orientation only (preserving current resolution and refresh rate)
+    let setDisplayOrientation (displayId: DisplayId) (orientation: DisplayOrientation) =
+        result {
+            printfn "[DEBUG] ========== Starting setDisplayOrientation =========="
+            printfn "[DEBUG] Display ID: %s" displayId
+            printfn "[DEBUG] Target Orientation: %A" orientation
+            
+            let! currentDevMode = getCurrentDevMode displayId
+            printfn "[DEBUG] Current settings: %ux%u @ %uHz" currentDevMode.dmPelsWidth currentDevMode.dmPelsHeight currentDevMode.dmDisplayFrequency
+            
+            // Create current mode from existing settings
+            let currentMode = {
+                Width = int currentDevMode.dmPelsWidth
+                Height = int currentDevMode.dmPelsHeight
+                RefreshRate = int currentDevMode.dmDisplayFrequency
+                BitsPerPixel = int currentDevMode.dmBitsPerPel
+            }
+            
+            // Validate that the current mode exists (should always pass)
+            do! validateModeExists displayId currentMode
+            let! targetDevMode = createTargetDevMode displayId currentDevMode currentMode orientation
+            do! testAndApplyMode displayId targetDevMode
+            
+            printfn "[DEBUG] SUCCESS: Display orientation changed to %A!" orientation
             return ()
         }
 
@@ -956,3 +969,82 @@ module DisplayControl =
                 printfn "[DEBUG] EXCEPTION in testDisplayMode: %s" ex.Message
                 onComplete (Error (sprintf "Exception during test: %s" ex.Message))
         }
+
+    // Batch operation result type for consistent error handling
+    type BatchOperationResult<'T> = {
+        Successes: (DisplayId * 'T) list
+        Failures: (DisplayId * string) list  
+    }
+
+    // Helper function to create batch operation results
+    let private createBatchResult successes failures =
+        { Successes = successes; Failures = failures }
+
+    // Apply enable/disable to multiple displays with best-effort approach
+    let applyMultipleDisplayEnabled (displayOperations: (DisplayId * bool) list) =
+        printfn "[DEBUG] ========== Applying Multiple Display Enable/Disable Operations =========="
+        printfn "[DEBUG] Total displays to process: %d" displayOperations.Length
+        displayOperations |> List.iteri (fun i (id, enabled) ->
+            printfn "[DEBUG] Display %d: %s -> %s" (i+1) id (if enabled then "ENABLE" else "DISABLE"))
+        
+        let successes = System.Collections.Generic.List<DisplayId * unit>()
+        let failures = System.Collections.Generic.List<DisplayId * string>()
+        
+        for (displayId, enabled) in displayOperations do
+            match setDisplayEnabled displayId enabled with
+            | Ok () -> 
+                successes.Add((displayId, ()))
+                printfn "[DEBUG] SUCCESS: %s %s" displayId (if enabled then "enabled" else "disabled")
+            | Error err -> 
+                failures.Add((displayId, err))
+                printfn "[DEBUG] FAILED: %s - %s" displayId err
+        
+        let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
+        printfn "[DEBUG] Batch enable/disable completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Ok batchResult
+
+    // Apply display modes to multiple displays with best-effort approach
+    let applyMultipleDisplayModes (displayModeOperations: (DisplayId * DisplayMode * DisplayOrientation) list) =
+        printfn "[DEBUG] ========== Applying Multiple Display Mode Operations =========="
+        printfn "[DEBUG] Total displays to process: %d" displayModeOperations.Length
+        displayModeOperations |> List.iteri (fun i (id, mode, orientation) ->
+            printfn "[DEBUG] Display %d: %s -> %dx%d @ %dHz, %A" (i+1) id mode.Width mode.Height mode.RefreshRate orientation)
+        
+        let successes = System.Collections.Generic.List<DisplayId * unit>()
+        let failures = System.Collections.Generic.List<DisplayId * string>()
+        
+        for (displayId, mode, orientation) in displayModeOperations do
+            match applyDisplayMode displayId mode orientation with
+            | Ok () -> 
+                successes.Add((displayId, ()))
+                printfn "[DEBUG] SUCCESS: %s mode applied" displayId
+            | Error err -> 
+                failures.Add((displayId, err))
+                printfn "[DEBUG] FAILED: %s - %s" displayId err
+        
+        let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
+        printfn "[DEBUG] Batch mode changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Ok batchResult
+
+    // Apply orientation changes to multiple displays with best-effort approach
+    let applyMultipleDisplayOrientations (displayOrientationOperations: (DisplayId * DisplayOrientation) list) =
+        printfn "[DEBUG] ========== Applying Multiple Display Orientation Operations =========="
+        printfn "[DEBUG] Total displays to process: %d" displayOrientationOperations.Length
+        displayOrientationOperations |> List.iteri (fun i (id, orientation) ->
+            printfn "[DEBUG] Display %d: %s -> %A" (i+1) id orientation)
+        
+        let successes = System.Collections.Generic.List<DisplayId * unit>()
+        let failures = System.Collections.Generic.List<DisplayId * string>()
+        
+        for (displayId, orientation) in displayOrientationOperations do
+            match setDisplayOrientation displayId orientation with
+            | Ok () -> 
+                successes.Add((displayId, ()))
+                printfn "[DEBUG] SUCCESS: %s orientation set to %A" displayId orientation
+            | Error err -> 
+                failures.Add((displayId, err))
+                printfn "[DEBUG] FAILED: %s - %s" displayId err
+        
+        let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
+        printfn "[DEBUG] Batch orientation changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Ok batchResult

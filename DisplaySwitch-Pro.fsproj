@@ -15,8 +15,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core Domain - Base types and simplified state -->
+    <!-- Core Domain - Base types and utilities -->
     <Compile Include="Core/Types.fs" />
+    <Compile Include="Core/ResultBuilder.fs" />
     <Compile Include="AppState.fs" />
     
     <!-- API Domain - Display operations -->
