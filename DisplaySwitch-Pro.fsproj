@@ -21,13 +21,22 @@
     <Compile Include="AppState.fs" />
     
     <!-- API Domain - Display operations -->
-    <Compile Include="API/WindowsAPI.fs" />
+    <!-- Windows Platform APIs -->
+    <Compile Include="API/Windows/WindowsAPI.fs" />
+    <!-- Algorithm modules (dependencies first) -->
+    <Compile Include="API/Windows/WMIHardwareDetection.fs" />
+    <Compile Include="API/Windows/MonitorBoundsDetection.fs" />
+    <Compile Include="API/Windows/CCDTargetMapping.fs" />
+    <Compile Include="API/Windows/CCDPathManagement.fs" />
+    <!-- Core API modules (using algorithm modules) -->
     <Compile Include="API/DisplayStateCache.fs" />
-    <Compile Include="API/DisplayDetection.fs" />
-    <Compile Include="API/DisplayConfigurationAPI.fs" />
-    <Compile Include="API/DisplayControl.fs" />
-    <Compile Include="API/PresetManager.fs" />
-    <Compile Include="API/WindowsDisplaySystem.fs" />
+    <Compile Include="API/Windows/WindowsDisplayNumbering.fs" />
+    <Compile Include="API/Windows/WindowsDisplayEnumeration.fs" />
+    <Compile Include="API/Windows/WindowsDetection.fs" />
+    <Compile Include="API/Windows/WindowsCCDAPI.fs" />
+    <Compile Include="API/Windows/WindowsControl.fs" />
+    <Compile Include="API/Common/PresetManager.fs" />
+    <Compile Include="API/Windows/WindowsDisplaySystem.fs" />
     <Compile Include="API/PlatformAdapter.fs" />
     
     <!-- UI Domain - User interface -->

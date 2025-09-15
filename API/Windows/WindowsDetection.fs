@@ -2,9 +2,11 @@ namespace DisplaySwitchPro
 
 open System
 open System.Collections.Generic
-open System.Management
 open System.Runtime.InteropServices
 open WindowsAPI
+open WindowsDisplayNumbering
+open WindowsDisplayEnumeration
+open WMIHardwareDetection
 
 // Configuration constants for display detection
 module private DetectionConstants =
@@ -20,104 +22,9 @@ module private DetectionConstants =
 // Display enumeration and detection functionality
 module DisplayDetection =
     
-    // WMI monitor information structure
-    type WmiMonitorInfo = {
-        InstanceName: string
-        FriendlyName: string
-        TargetId: uint32 option
-    }
 
-    // Extract target ID from WMI instance name
-    let private extractTargetId (instanceName: string) =
-        try
-            // Example: "DISPLAY\SAM713F\5&12e08716&0&UID176390_0" → 176390
-            let uidMatch = System.Text.RegularExpressions.Regex.Match(instanceName, @"UID(\d+)")
-            if uidMatch.Success then
-                let targetIdStr = uidMatch.Groups.[1].Value
-                match System.UInt32.TryParse(targetIdStr) with
-                | true, targetId -> Some targetId
-                | false, _ -> None
-            else
-                None
-        with
-        | ex ->
-            printfn "Error extracting target ID from %s: %s" instanceName ex.Message
-            None
 
-    // Get monitor friendly names and target IDs using WMI
-    let private getWmiMonitorInfo() =
-        try
-            let monitors = System.Collections.Generic.List<WmiMonitorInfo>()
-            
-            // Query WmiMonitorID for friendly names and instance names
-            use searcher = new ManagementObjectSearcher("root\\wmi", "SELECT * FROM WmiMonitorID")
-            use collection = searcher.Get()
-            
-            for obj in collection do
-                use managementObj = obj :?> ManagementObject
-                try
-                    let instanceName = managementObj.["InstanceName"] :?> string
-                    let userFriendlyNameObj = managementObj.["UserFriendlyName"]
-                    let manufacturerNameObj = managementObj.["ManufacturerName"]
-                    
-                    let parseWmiString (obj: obj) =
-                        if obj <> null then
-                            match obj with
-                            | :? (uint16[]) as uint16Array ->
-                                uint16Array 
-                                |> Array.filter (fun u -> u <> 0us)
-                                |> Array.map char
-                                |> String
-                            | :? (byte[]) as byteArray ->
-                                byteArray 
-                                |> Array.filter (fun b -> b <> 0uy)
-                                |> Array.map char
-                                |> String
-                            | _ -> ""
-                        else ""
-                    
-                    let friendlyName = parseWmiString userFriendlyNameObj
-                    let manufacturer = parseWmiString manufacturerNameObj
-                    
-                    if not (String.IsNullOrEmpty(friendlyName)) then
-                        
-                        let fullName = 
-                            if not (String.IsNullOrEmpty(manufacturer)) then
-                                sprintf "%s %s" manufacturer friendlyName
-                            else friendlyName
-                        
-                        let targetId = extractTargetId instanceName
-                        
-                        let monitorInfo = {
-                            InstanceName = instanceName
-                            FriendlyName = fullName
-                            TargetId = targetId
-                        }
-                        
-                        // Add to list - WMI monitors should appear in same order as displays
-                        monitors.Add(monitorInfo)
-                        
-                        // Debug logging for target ID mapping
-                        match targetId with
-                        | Some id -> printfn "[DEBUG] WMI Monitor: %s -> %s (Target ID: %u)" instanceName fullName id
-                        | None -> printfn "[DEBUG] WMI Monitor: %s -> %s (No Target ID found)" instanceName fullName
-                
-                with ex -> 
-                    printfn "Error processing WMI monitor: %s" ex.Message
-            
-            monitors
-        with
-        | ex -> 
-            printfn "WMI monitor detection failed: %s" ex.Message
-            System.Collections.Generic.List<WmiMonitorInfo>()
 
-    // Legacy compatibility function for existing code
-    let private getMonitorFriendlyNames() =
-        let wmiInfo = getWmiMonitorInfo()
-        let friendlyNames = System.Collections.Generic.List<string>()
-        for info in wmiInfo do
-            friendlyNames.Add(info.FriendlyName)
-        friendlyNames
     
     // Get all display devices (including inactive ones)
     // Helper function to try getting a single display device at index
@@ -367,124 +274,129 @@ module DisplayDetection =
                 Capabilities = None // No capabilities for inactive displays (can be populated later if needed)
             }
     
-    // Create mapping from display ID to correct target ID using raw Windows API calls
-    let getDisplayTargetIdMapping() =
-        try
-            printfn "[DEBUG] Building display-to-target ID mapping using raw CCD API..."
-            
-            // Use raw Windows API calls to get display paths (avoid module dependency)
-            let mutable pathCount = 0u
-            let mutable modeCount = 0u
-            
-            // Get buffer sizes - use ALL_PATHS to get complete enumeration order
-            let sizeResult = WindowsAPI.GetDisplayConfigBufferSizes(WindowsAPI.QDC.QDC_ALL_PATHS, &pathCount, &modeCount)
-            if sizeResult = 0 then
-                let pathArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_PATH_INFO> (int pathCount)
-                let modeArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_MODE_INFO> (int modeCount)
-                
-                // Query display configuration - use ALL_PATHS to get complete enumeration order
-                let queryResult = WindowsAPI.QueryDisplayConfig(WindowsAPI.QDC.QDC_ALL_PATHS, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
-                if queryResult = 0 then
-                    printfn "[DEBUG] Found %d CCD paths for mapping" pathCount
-                    
-                    // Get WMI monitor information with target IDs  
-                    let wmiMonitors = getWmiMonitorInfo()
-                    let wmiByTargetId = 
-                        wmiMonitors 
-                        |> Seq.choose (fun wmi -> 
-                            match wmi.TargetId with 
-                            | Some targetId -> Some (targetId, wmi.FriendlyName)
-                            | None -> None)
-                        |> Map.ofSeq
-                    
-                    // Build mapping by matching CCD source IDs to Windows display device names
-                    // Only include paths that have corresponding WMI hardware information
-                    let mapping = 
-                        pathArray
-                        |> Array.take (int pathCount)
-                        |> Array.choose (fun path ->
-                            // Convert source ID to Windows display device name (sourceId 0 = DISPLAY1, etc.)
-                            let displayName = sprintf "\\\\.\\DISPLAY%d" (int path.sourceInfo.id + 1)
-                            let targetId = path.targetInfo.id
-                            
-                            // Only include paths that have WMI information (filter out "Unknown" paths)
-                            match Map.tryFind targetId wmiByTargetId with
-                            | Some friendlyName ->
-                                printfn "[DEBUG] CCD Path: %s (Source %d) -> Target ID %u (%s)" displayName (int path.sourceInfo.id) targetId friendlyName
-                                Some (displayName, targetId)
-                            | None ->
-                                printfn "[DEBUG] Skipping CCD Path: %s (Source %d) -> Target ID %u (No WMI data)" displayName (int path.sourceInfo.id) targetId
-                                None)
-                        |> Array.groupBy fst  // Group by display name
-                        |> Array.map (fun (displayName, paths) ->
-                            // If multiple paths for same display, match to correct target ID
-                            let bestPath = 
-                                if Array.length paths > 1 then
-                                    // Get the display number from the name (\\.\DISPLAY4 -> 4)
-                                    let displayNum = displayName.Substring(11) |> int
-                                    // Get WMI monitors in enumeration order (same as Windows display order)
-                                    let wmiList = getWmiMonitorInfo() |> Seq.toList
-                                    if displayNum <= wmiList.Length then
-                                        let expectedWmi = wmiList.[displayNum - 1]
-                                        match expectedWmi.TargetId with
-                                        | Some expectedTargetId ->
-                                            // Find path that matches this display's actual target ID
-                                            paths |> Array.tryFind (fun (_, targetId) -> targetId = expectedTargetId)
-                                            |> Option.defaultValue (paths |> Array.head)
-                                        | None -> paths |> Array.head
-                                    else
-                                        paths |> Array.head
-                                else
-                                    paths |> Array.head
-                            bestPath)
-                        |> Map.ofArray
-                    
-                    printfn "[DEBUG] Created CCD mapping for %d displays" (Map.count mapping)
-                    mapping
-                else
-                    printfn "[ERROR] QueryDisplayConfig failed with code: %d" queryResult
-                    Map.empty
-            else
-                printfn "[ERROR] GetDisplayConfigBufferSizes failed with code: %d" sizeResult
-                Map.empty
-                
-        with
-        | ex ->
-            printfn "[ERROR] Failed to build display-target ID mapping: %s" ex.Message
-            Map.empty
 
-    // Main function to get all connected displays using simple index-based WMI mapping
+    // Convert enumerated display to DisplayInfo with business logic for disabled displays
+    let private convertEnumeratedDisplayToDisplayInfo (enumDisplay: EnumeratedDisplay) : DisplayInfo =
+        // Business logic: Check if this display was recently disabled
+        // If the enumeration shows it as active but it has no monitor bounds, it's likely disabled
+        let isActuallyActive =
+            enumDisplay.IsActive &&
+            enumDisplay.HasMonitorInfo &&
+            enumDisplay.IsAttachedToDesktop
+
+        // Override the enumeration result with business logic
+        let effectiveIsActive =
+            if enumDisplay.IsActive && not enumDisplay.HasMonitorInfo then
+                printfn "[BUSINESS LOGIC] Display %s marked as inactive (no monitor bounds despite CCD active)" enumDisplay.APIDeviceName
+                false
+            else
+                isActuallyActive
+        // Create display name with proper Windows Display numbering
+        let displayId =
+            if enumDisplay.IsPrimary then
+                sprintf "Display %d (Primary)" enumDisplay.WindowsDisplayNumber
+            else
+                sprintf "Display %d" enumDisplay.WindowsDisplayNumber
+
+        let fullName = sprintf "%s (%s)" displayId enumDisplay.FriendlyName
+
+        // Get position from monitor bounds or use default for inactive displays
+        let position =
+            match enumDisplay.MonitorBounds with
+            | Some (left, top, right, bottom) ->
+                { X = left; Y = top }
+            | None ->
+                // Position inactive displays away from active ones
+                { X = DetectionConstants.InactiveDisplayOffset; Y = 0 }
+
+        // Get resolution from current settings or use default
+        let resolution, orientation =
+            if effectiveIsActive then
+                match getCurrentDisplaySettings enumDisplay.APIDeviceName with
+                | Some settings ->
+                    let res = { Width = settings.Width; Height = settings.Height; RefreshRate = settings.RefreshRate }
+                    let orient = if settings.Width > settings.Height then Landscape else Portrait
+                    (res, orient)
+                | None ->
+                    // Fallback to bounds if available
+                    match enumDisplay.MonitorBounds with
+                    | Some (left, top, right, bottom) ->
+                        let width = right - left
+                        let height = bottom - top
+                        let res = { Width = width; Height = height; RefreshRate = DetectionConstants.DefaultRefreshRate }
+                        let orient = if width > height then Landscape else Portrait
+                        (res, orient)
+                    | None ->
+                        let res = { Width = DetectionConstants.DefaultDisplayWidth; Height = DetectionConstants.DefaultDisplayHeight; RefreshRate = DetectionConstants.DefaultRefreshRate }
+                        (res, Landscape)
+            else
+                // Default resolution for inactive displays
+                let res = { Width = DetectionConstants.DefaultDisplayWidth; Height = DetectionConstants.DefaultDisplayHeight; RefreshRate = DetectionConstants.DefaultRefreshRate }
+                (res, Landscape)
+
+        // Get capabilities for active displays
+        let capabilities =
+            if effectiveIsActive then
+                let availableModes = getAllDisplayModes enumDisplay.APIDeviceName
+                if availableModes.Length > 0 then
+                    let currentMode =
+                        match getCurrentDisplaySettings enumDisplay.APIDeviceName with
+                        | Some settings -> settings
+                        | None -> { Width = resolution.Width; Height = resolution.Height; RefreshRate = resolution.RefreshRate; BitsPerPixel = DetectionConstants.DefaultBitsPerPixel }
+
+                    Some {
+                        DisplayId = sprintf "Display%d" enumDisplay.WindowsDisplayNumber  // Use Windows Display Number as unique ID
+                        CurrentMode = currentMode
+                        AvailableModes = availableModes
+                        GroupedResolutions = createGroupedResolutions availableModes
+                    }
+                else None
+            else None
+
+        // Create enhanced display name for inactive displays
+        let finalName = if not enumDisplay.IsActive then sprintf "%s [Inactive]" fullName else fullName
+
+        {
+            Id = sprintf "Display%d" enumDisplay.WindowsDisplayNumber  // Use Windows Display Number as unique ID
+            Name = finalName
+            Resolution = resolution
+            Position = position
+            Orientation = orientation
+            IsPrimary = enumDisplay.IsPrimary
+            IsEnabled = effectiveIsActive
+            Capabilities = capabilities
+        }
+
+    // Main function using clean enumeration module
     let getConnectedDisplays() : DisplayInfo list =
-        try
-            printfn "Detecting displays on Win32NT..."
-            
-            // Get monitor friendly names from WMI (simple approach that works)
-            let wmiMonitors = getMonitorFriendlyNames()
-            printfn "[DEBUG] Found %d WMI monitor entries" wmiMonitors.Count
-            
-            // Get all display devices (enumerated by Windows) 
-            let allDevices = getAllDisplayDevices()
-            printfn "Found %d display devices" allDevices.Length
-            
-            // Get active monitor information
-            let activeMonitors = getActiveMonitorInfo()
-            
-            // Convert each display device using simple index-based WMI mapping
-            allDevices
-            |> List.mapi (fun index device ->
-                let monitorInfo = Map.tryFind device.DeviceName activeMonitors
-                
-                // Get friendly name using simple index-based mapping (proven to work)
-                let monitorName = 
-                    if index < wmiMonitors.Count then
-                        wmiMonitors.[index]
-                    else
-                        device.DeviceString
-                
-                convertToDisplayInfoWithName device monitorInfo monitorName
-            )
-            
-        with
-        | ex -> 
-            printfn "Windows display detection failed: %s" ex.Message
-            []
+        printfn "Detecting displays using Windows Display enumeration..."
+
+        // Get all displays (active and inactive) using our clean enumeration
+        let enumeratedDisplays = WindowsDisplayEnumeration.getAllDisplaysWithStatus()
+
+        // Convert to DisplayInfo with business logic
+        let displayInfos = enumeratedDisplays |> List.map convertEnumeratedDisplayToDisplayInfo
+
+        printfn "Found %d displays total" displayInfos.Length
+        let activeCount = displayInfos |> List.filter (fun d -> d.IsEnabled) |> List.length
+        let inactiveCount = displayInfos |> List.filter (fun d -> not d.IsEnabled) |> List.length
+        printfn "  - %d active displays" activeCount
+        printfn "  - %d inactive/connected displays" inactiveCount
+
+        displayInfos
+
+    // Mapping function to convert Windows Display Number back to API device name for legacy API calls
+    let getAPIDeviceNameForDisplayId (displayId: DisplayId) : string option =
+        // Extract Windows Display Number from displayId format "Display1" -> 1
+        if displayId.StartsWith("Display") then
+            let numberPart = displayId.Substring(7) // Remove "Display" prefix
+            match System.Int32.TryParse(numberPart) with
+            | true, windowsDisplayNumber ->
+                // Get current enumeration to find the API device name for this Windows Display number
+                let enumeratedDisplays = WindowsDisplayEnumeration.getAllDisplaysWithStatus()
+                enumeratedDisplays
+                |> List.tryFind (fun d -> d.WindowsDisplayNumber = windowsDisplayNumber)
+                |> Option.map (fun d -> d.APIDeviceName)
+            | false, _ -> None
+        else
+            None

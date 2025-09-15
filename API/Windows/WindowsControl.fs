@@ -6,6 +6,7 @@ open System.Threading
 open WindowsAPI
 open DisplayStateCache
 open DisplayConfigurationAPI
+open CCDPathManagement
 open DisplayDetection
 open ResultBuilder
 
@@ -63,24 +64,32 @@ module private DisplayConstants =
 
 // High-level display control operations
 module DisplayControl =
-    
+
+    // Helper function to map display ID to API device name
+    let private getAPIDeviceNameForDisplay displayId =
+        match DisplayDetection.getAPIDeviceNameForDisplayId displayId with
+        | Some apiDeviceName -> apiDeviceName
+        | None -> failwith (sprintf "Cannot map display ID '%s' to API device name" displayId)
+
     // Helper functions for functional display mode application
     let private getCurrentDevMode displayId =
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
         let mutable devMode = WindowsAPI.DEVMODE()
         devMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
-        
-        let result = WindowsAPI.EnumDisplaySettings(displayId, -1, &devMode)
-        if result then 
+
+        let result = WindowsAPI.EnumDisplaySettings(apiDeviceName, -1, &devMode)
+        if result then
             Ok devMode
-        else 
-            Error (sprintf "Could not get current display settings for %s" displayId)
+        else
+            Error (sprintf "Could not get current display settings for %s (API: %s)" displayId apiDeviceName)
     
     let private validateModeExists displayId mode =
-        let allModes = DisplayDetection.getAllDisplayModes displayId
-        let modeExists = allModes |> List.exists (fun m -> 
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
+        let allModes = DisplayDetection.getAllDisplayModes apiDeviceName
+        let modeExists = allModes |> List.exists (fun m ->
             m.Width = mode.Width && m.Height = mode.Height && m.RefreshRate = mode.RefreshRate)
-        
-        if modeExists then 
+
+        if modeExists then
             Ok ()
         else
             let availableForResolution = allModes |> List.filter (fun m -> m.Width = mode.Width && m.Height = mode.Height)
@@ -89,11 +98,12 @@ module DisplayControl =
                 availableForResolution |> List.iter (fun m -> printfn "[DEBUG]   - %dHz" m.RefreshRate)
             else
                 printfn "[DEBUG] No modes found for resolution %dx%d" mode.Width mode.Height
-            
-            Error (sprintf "Mode %dx%d @ %dHz is not supported by display %s" mode.Width mode.Height mode.RefreshRate displayId)
+
+            Error (sprintf "Mode %dx%d @ %dHz is not supported by display %s (API: %s)" mode.Width mode.Height mode.RefreshRate displayId apiDeviceName)
     
     let private createTargetDevMode displayId (currentDevMode: WindowsAPI.DEVMODE) mode orientation =
-        match DisplayDetection.getExactDevModeForMode displayId mode with
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
+        match DisplayDetection.getExactDevModeForMode apiDeviceName mode with
         | Some exactDevMode ->
             let mutable targetDevMode = exactDevMode
             targetDevMode.dmDisplayOrientation <- DisplayStateCache.orientationToWindows orientation
@@ -119,9 +129,10 @@ module DisplayControl =
             Ok targetDevMode
     
     let private testAndApplyMode displayId targetDevMode =
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
         let mutable devMode = targetDevMode
-        let testResult = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_TEST, IntPtr.Zero)
-        
+        let testResult = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_TEST, IntPtr.Zero)
+
         if testResult <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
             let errorMsg = match testResult with
                            | x when x = WindowsAPI.DISP.DISP_CHANGE_BADMODE -> "Invalid display mode"
@@ -131,10 +142,10 @@ module DisplayControl =
                            | x when x = WindowsAPI.DISP.DISP_CHANGE_NOTUPDATED -> "Unable to write settings to registry"
                            | x when x = WindowsAPI.DISP.DISP_CHANGE_BADDUALVIEW -> "Bad dual view configuration"
                            | _ -> sprintf "Unknown error code: %d" testResult
-            Error (sprintf "Display mode test failed for %s: %s" displayId errorMsg)
+            Error (sprintf "Display mode test failed for %s (API: %s): %s" displayId apiDeviceName errorMsg)
         else
             let mutable applyMode = targetDevMode
-            let applyResult = WindowsAPI.ChangeDisplaySettingsEx(displayId, &applyMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+            let applyResult = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &applyMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
             
             match applyResult with
             | x when x = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL -> Ok ()
@@ -442,7 +453,7 @@ module DisplayControl =
         }
 
     // Comprehensive display state validation with Result type
-    let private validateDisplayState displayId expectedState maxAttempts =
+    let private validateDisplayState displayId expectedState =
         let validateSingleAttempt attempt =
             try
                 printfn "[DEBUG] Validation attempt %d for %s (expecting %b)" attempt displayId expectedState
@@ -465,7 +476,7 @@ module DisplayControl =
                 
                 // Method 3: Check via CCD API paths
                 let ccdResult = 
-                    match DisplayConfigurationAPI.getDisplayPaths true with
+                    match CCDPathManagement.getDisplayPaths true with
                     | Ok (pathArray, _, pathCount, _) ->
                         pathArray
                         |> Array.take (int pathCount)
@@ -516,22 +527,8 @@ module DisplayControl =
             | ex ->
                 Error (sprintf "Validation exception: %s" ex.Message)
         
-        // Progressive retry with exponential backoff
-        let rec tryWithBackoff attempt =
-            if attempt > maxAttempts then
-                Error "Validation timeout - max attempts exceeded"
-            else
-                match validateSingleAttempt attempt with
-                | Ok result -> Ok result
-                | Error msg when attempt = maxAttempts -> 
-                    Error msg
-                | Error msg ->
-                    let delay = min (DisplayConstants.ValidationBaseDelay * (1 <<< (attempt - 1))) DisplayConstants.ValidationMaxDelay
-                    printfn "[DEBUG] Validation attempt %d failed (%s), retrying in %dms..." attempt msg delay
-                    System.Threading.Thread.Sleep(delay)
-                    tryWithBackoff (attempt + 1)
-        
-        tryWithBackoff 1
+        // Single validation attempt - no retrying
+        validateSingleAttempt 1
 
     // Helper to create DEVMODE from saved state
     let private createDevModeFromSavedState savedState =
@@ -563,9 +560,10 @@ module DisplayControl =
     
     // Helper to enable display using saved state
     let private enableWithSavedState displayId savedState =
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
         let devMode = createDevModeFromSavedState savedState
         let mutable mutableDevMode = devMode
-        let result = WindowsAPI.ChangeDisplaySettingsEx(displayId, &mutableDevMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+        let result = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &mutableDevMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
         
         if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
             printfn "[DEBUG] SUCCESS: Display restored from saved state!"
@@ -599,7 +597,8 @@ module DisplayControl =
         devMode.dmPositionY <- optimalY
         devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
         
-        let result = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+        let apiDeviceName = getAPIDeviceNameForDisplay displayId
+        let result = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
         if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
             printfn "[DEBUG] SUCCESS: Display enabled with auto-detected settings!"
             Ok ()
@@ -615,11 +614,11 @@ module DisplayControl =
             | CCDTargeted ->
                 // Use ALL paths including inactive to find DISPLAY4
                 printfn "[DEBUG] CCD Targeted: Getting ALL paths to find inactive display..."
-                match DisplayConfigurationAPI.getDisplayPaths true with  // Get ALL paths including inactive
+                match CCDPathManagement.getDisplayPaths true with  // Get ALL paths including inactive
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
-                    match DisplayConfigurationAPI.findInactiveDisplayPath displayId pathArray pathCount with
+                    match CCDPathManagement.findInactiveDisplayPath displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
-                        match DisplayConfigurationAPI.validateDisplayPath targetPath with
+                        match CCDPathManagement.validateDisplayPath targetPath with
                         | Ok validatedPath ->
                             let modifiedPaths = Array.copy pathArray
                             let mutable modifiedPath = validatedPath
@@ -639,9 +638,9 @@ module DisplayControl =
             | CCDModePopulation ->
                 printfn "[DEBUG] CCD Mode Population: Creating mode information for inactive display..."
                 // Get ALL paths including inactive ones
-                match DisplayConfigurationAPI.getDisplayPathsWithValidation true with
+                match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
-                    match DisplayConfigurationAPI.findInactiveDisplayPath displayId pathArray pathCount with
+                    match CCDPathManagement.findInactiveDisplayPath displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
                         // Create a larger mode array with space for new modes
                         let expandedModeArray = Array.zeroCreate<WindowsAPI.DISPLAYCONFIG_MODE_INFO> (int modeCount + 10)
@@ -671,9 +670,9 @@ module DisplayControl =
             | CCDDirectPath ->
                 printfn "[DEBUG] CCD Direct Path: Using exact path with no filtering or modifications..."
                 // Get ALL paths to find DISPLAY4, then use it directly
-                match DisplayConfigurationAPI.getDisplayPathsWithValidation true with
+                match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
-                    match DisplayConfigurationAPI.findDisplayPathBySourceId displayId pathArray pathCount with
+                    match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
                         // Simply activate the path without any filtering or modifications
                         let directPaths = Array.copy pathArray
@@ -697,9 +696,9 @@ module DisplayControl =
             | CCDMinimalPaths ->
                 printfn "[DEBUG] CCD Minimal Paths: Using filtered path configuration..."
                 // Get ALL paths to find DISPLAY4, then filter for SetDisplayConfig
-                match DisplayConfigurationAPI.getDisplayPathsWithValidation true with
+                match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
-                    match DisplayConfigurationAPI.findDisplayPathBySourceId displayId pathArray pathCount with
+                    match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
                         printfn "[DEBUG] Found target display at path index %d" pathIndex
                         
@@ -747,12 +746,13 @@ module DisplayControl =
                     devMode.dmFields <- 0x00020000u ||| 0x00040000u ||| 0x00080000u ||| 0x00400000u ||| 0x00000020u
                     
                     // Step 1: Test the mode
-                    let testResult = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_TEST, IntPtr.Zero)
+                    let apiDeviceName = getAPIDeviceNameForDisplay displayId
+                    let testResult = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_TEST, IntPtr.Zero)
                     if testResult <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
                         Error (sprintf "DEVMODE test failed: %d" testResult)
                     else
                         // Step 2: Apply without reset
-                        let applyResult1 = WindowsAPI.ChangeDisplaySettingsEx(displayId, &devMode, IntPtr.Zero, 
+                        let applyResult1 = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &devMode, IntPtr.Zero,
                                            WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET, IntPtr.Zero)
                         if applyResult1 <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
                             Error (sprintf "DEVMODE apply (no reset) failed: %d" applyResult1)
@@ -809,7 +809,7 @@ module DisplayControl =
             match executeStrategy strategy displayId with
             | Ok _ ->
                 printfn "[DEBUG] Strategy %A executed, validating display state..." strategy
-                match validateDisplayState displayId true DisplayConstants.ValidationMaxAttempts with
+                match validateDisplayState displayId true with
                 | Ok validationResult ->
                     if validationResult.IsEnabled then
                         printfn "[DEBUG] SUCCESS: Strategy %A worked! Display enabled and validated." strategy
@@ -848,47 +848,104 @@ module DisplayControl =
         else
             printfn "[DEBUG] Warning: Failed to save display state"
         
-        // Use CCD API to properly disable the display
-        printfn "[DEBUG] Using CCD API to disable display %s" displayId
-        match DisplayConfigurationAPI.getDisplayPaths true with  // Get all paths including the one to disable
+        // Use CCD API with target mapping to properly disable the display (like TV fix)
+        printfn "[DEBUG] Using CCD API with target mapping to disable display %s" displayId
+        match CCDPathManagement.getDisplayPaths false with  // Get only active paths
         | Ok (pathArray, modeArray, pathCount, modeCount) ->
-            match DisplayConfigurationAPI.findDisplayPathBySourceId displayId pathArray pathCount with
-            | Ok (targetPath, pathIndex) ->
-                let modifiedPaths = Array.copy pathArray
-                let mutable modifiedPath = targetPath
-                modifiedPath.flags <- 0u  // Remove DISPLAYCONFIG_PATH_ACTIVE flag
-                modifiedPath.targetInfo.targetAvailable <- 0  // Mark as not available
-                modifiedPaths.[pathIndex] <- modifiedPath
-                
-                printfn "[DEBUG] Applying configuration to disable display path %d" pathIndex
-                match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount 
-                      (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
-                       WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE) with
-                | Ok _ -> 
-                    printfn "[DEBUG] SUCCESS: Display disabled using CCD API!"
-                    Ok ()
-                | Error err -> 
-                    printfn "[DEBUG] CCD disable failed: %s, trying fallback method" err
-                    // Fallback to original method
-                    let result = WindowsAPI.ChangeDisplaySettingsExNull(displayId, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-                    if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-                        printfn "[DEBUG] SUCCESS: Display disabled with fallback!"
-                        Ok ()
-                    else
-                        printfn "[DEBUG] Fallback disable failed (%d), treating as success" result
-                        Ok ()
-            | Error err ->
-                printfn "[DEBUG] Could not find display path: %s, using fallback" err
-                let result = WindowsAPI.ChangeDisplaySettingsExNull(displayId, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
-                if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-                    printfn "[DEBUG] SUCCESS: Display disabled with fallback!"
-                    Ok ()
-                else
-                    printfn "[DEBUG] Fallback disable failed (%d), treating as success" result
-                    Ok ()
+            // Find the correct path using target mapping approach from TV fix
+            let targetMappings = CCDTargetMapping.getDisplayTargetIdMapping()
+            let targetIdOption =
+                targetMappings
+                |> List.tryFind (fun m -> m.DisplayName = displayId)
+                |> Option.map (fun m -> m.TargetId)
+
+            match targetIdOption with
+            | Some targetId ->
+                    // Find path with the specific target ID for this display
+                    let pathOption =
+                        pathArray
+                        |> Array.mapi (fun i path -> (i, path))
+                        |> Array.tryFind (fun (_, path) -> path.targetInfo.id = targetId)
+
+                    match pathOption with
+                    | Some (pathIndex, targetPath) ->
+                        printfn "[DEBUG] Found target path %d with Target ID %u for %s" pathIndex targetId displayId
+
+                        // Create new configuration with the target display removed
+                        let filteredPaths =
+                            pathArray
+                            |> Array.mapi (fun i path -> (i, path))
+                            |> Array.filter (fun (i, _) -> i <> pathIndex)
+                            |> Array.map snd
+
+                        printfn "[DEBUG] Removing display path (was %d paths, now %d paths)" (int pathCount) filteredPaths.Length
+
+                        match DisplayConfigurationAPI.applyDisplayConfigurationFiltered filteredPaths modeArray (uint32 filteredPaths.Length) modeCount
+                              (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG |||
+                               WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE) with
+                        | Ok _ ->
+                            printfn "[DEBUG] SUCCESS: Display disabled using target mapping approach!"
+                            Ok ()
+                        | Error err ->
+                            printfn "[DEBUG] Target mapping disable failed: %s, trying path deactivation" err
+                            // Fallback: deactivate the path instead of removing it
+                            let modifiedPaths = Array.copy pathArray
+                            let mutable modifiedPath = targetPath
+                            modifiedPath.flags <- 0u  // Remove DISPLAYCONFIG_PATH_ACTIVE flag
+                            modifiedPaths.[pathIndex] <- modifiedPath
+
+                            match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount
+                                  (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG |||
+                                   WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE) with
+                            | Ok _ ->
+                                printfn "[DEBUG] SUCCESS: Display disabled using path deactivation!"
+                                Ok ()
+                            | Error err2 ->
+                                printfn "[DEBUG] Path deactivation failed: %s, using ChangeDisplaySettings" err2
+                                let apiDeviceName = getAPIDeviceNameForDisplay displayId
+                                let result = WindowsAPI.ChangeDisplaySettingsExNull(apiDeviceName, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+                                if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
+                                    printfn "[DEBUG] SUCCESS: Display disabled with ChangeDisplaySettings!"
+                                    Ok ()
+                                else
+                                    printfn "[DEBUG] ChangeDisplaySettings failed (%d), treating as success for now" result
+                                    Ok ()
+                    | None ->
+                        printfn "[DEBUG] Could not find path with Target ID %u, using source ID fallback" targetId
+                        match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
+                        | Ok (targetPath, pathIndex) ->
+                            let modifiedPaths = Array.copy pathArray
+                            let mutable modifiedPath = targetPath
+                            modifiedPath.flags <- 0u
+                            modifiedPaths.[pathIndex] <- modifiedPath
+
+                            match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount
+                                  (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG) with
+                            | Ok _ ->
+                                printfn "[DEBUG] SUCCESS: Display disabled using source ID fallback!"
+                                Ok ()
+                            | Error err -> Error err
+                        | Error err -> Error err
+                | None ->
+                    printfn "[DEBUG] No target mapping found for %s, using source ID approach" displayId
+                    match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
+                    | Ok (targetPath, pathIndex) ->
+                        let modifiedPaths = Array.copy pathArray
+                        let mutable modifiedPath = targetPath
+                        modifiedPath.flags <- 0u
+                        modifiedPaths.[pathIndex] <- modifiedPath
+
+                        match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount
+                              (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG) with
+                        | Ok _ ->
+                            printfn "[DEBUG] SUCCESS: Display disabled using source ID approach!"
+                            Ok ()
+                        | Error err -> Error err
+                    | Error err -> Error err
         | Error err ->
             printfn "[DEBUG] Could not get display paths: %s, using fallback" err
-            let result = WindowsAPI.ChangeDisplaySettingsExNull(displayId, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
+            let apiDeviceName = getAPIDeviceNameForDisplay displayId
+            let result = WindowsAPI.ChangeDisplaySettingsExNull(apiDeviceName, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
             if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
                 printfn "[DEBUG] SUCCESS: Display disabled with fallback!"
                 Ok ()
@@ -903,7 +960,7 @@ module DisplayControl =
             printfn "[DEBUG] Display ID: %s, Target State: %b" displayId enabled
             
             // Get initial state for comparison
-            match validateDisplayState displayId (not enabled) 1 with
+            match validateDisplayState displayId (not enabled) with
             | Ok initialState -> 
                 printfn "[DEBUG] Initial state validated: IsEnabled=%b" initialState.IsEnabled
             | Error errorMsg -> 
@@ -927,7 +984,8 @@ module DisplayControl =
                 // Get current display settings to restore later
                 let mutable currentDevMode = WindowsAPI.DEVMODE()
                 currentDevMode.dmSize <- uint16 (Marshal.SizeOf(typeof<WindowsAPI.DEVMODE>))
-                let getCurrentResult = WindowsAPI.EnumDisplaySettings(displayId, -1, &currentDevMode)
+                let apiDeviceName = getAPIDeviceNameForDisplay displayId
+                let getCurrentResult = WindowsAPI.EnumDisplaySettings(apiDeviceName, -1, &currentDevMode)
                 
                 if not getCurrentResult then
                     printfn "[DEBUG] ERROR: Could not get current display settings for test mode"
