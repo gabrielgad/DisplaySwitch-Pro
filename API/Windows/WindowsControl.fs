@@ -310,7 +310,8 @@ module DisplayControl =
                                     printfn "[DEBUG] Repositioning %s to (%d, %d)" display.Id newPos.X newPos.Y
                                     WindowsAPI.CDS.CDS_UPDATEREGISTRY ||| WindowsAPI.CDS.CDS_NORESET
                             
-                            let changeResult = WindowsAPI.ChangeDisplaySettingsEx(display.Id, &updatedDevMode, IntPtr.Zero, flags, IntPtr.Zero)
+                            let apiDeviceName = getAPIDeviceNameForDisplay display.Id
+                            let changeResult = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &updatedDevMode, IntPtr.Zero, flags, IntPtr.Zero)
                             if changeResult <> WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
                                 errorMessage <- Some (sprintf "Failed to update display %s: %s" display.Id (getDisplayChangeErrorMessage changeResult))
                 
@@ -468,27 +469,39 @@ module DisplayControl =
                 // Method 2: Check via EnumDisplayDevices (Windows API direct)
                 let mutable displayDevice = WindowsAPI.DISPLAY_DEVICE()
                 displayDevice.cb <- Marshal.SizeOf(typeof<WindowsAPI.DISPLAY_DEVICE>)
-                let enumResult = WindowsAPI.EnumDisplayDevices(displayId, 0u, &displayDevice, 0u)
-                let apiResult = 
+
+                // Convert Display ID to API device name for EnumDisplayDevices
+                let apiDeviceName =
+                    match DisplayDetection.getAPIDeviceNameForDisplayId displayId with
+                    | Some apiName -> apiName
+                    | None -> displayId  // Fallback to original ID
+
+                let enumResult = WindowsAPI.EnumDisplayDevices(apiDeviceName, 0u, &displayDevice, 0u)
+                let apiResult =
                     if enumResult then
                         Some ((displayDevice.StateFlags &&& WindowsAPI.Flags.DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) <> 0u)
                     else None
                 
-                // Method 3: Check via CCD API paths
-                let ccdResult = 
+                // Method 3: Check via CCD API paths with improved Display ID parsing
+                let ccdResult =
                     match CCDPathManagement.getDisplayPaths true with
                     | Ok (pathArray, _, pathCount, _) ->
                         pathArray
                         |> Array.take (int pathCount)
-                        |> Array.tryFind (fun path -> 
-                            let displayNum = if displayId.StartsWith(@"\\.\DISPLAY") then
-                                                let mutable num = 0
-                                                if Int32.TryParse(displayId.Substring(11), &num) then Some (num - 1) else None
-                                             else None
+                        |> Array.tryFind (fun path ->
+                            // Parse display number from both old and new format
+                            let displayNum =
+                                if displayId.StartsWith(@"\\.\DISPLAY") then
+                                    let mutable num = 0
+                                    if Int32.TryParse(displayId.Substring(11), &num) then Some (num - 1) else None
+                                elif displayId.StartsWith("Display") then
+                                    let mutable num = 0
+                                    if Int32.TryParse(displayId.Substring(7), &num) then Some (num - 1) else None
+                                else None
                             match displayNum with
                             | Some num when int path.sourceInfo.id = num -> true
                             | _ -> false)
-                        |> Option.map (fun path -> 
+                        |> Option.map (fun path ->
                             path.flags &&& WindowsAPI.DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_ACTIVE <> 0u &&
                             path.targetInfo.targetAvailable <> 0)
                     | Error _ -> None

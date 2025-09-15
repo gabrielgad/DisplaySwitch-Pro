@@ -92,6 +92,56 @@ module CCDPathManagement =
 
         (relevantPaths, uint32 filteredCount)
 
+    /// Helper function to parse display number from both old and new formats
+    let private parseDisplayNumber (displayId: string) =
+        if displayId.StartsWith("Display") then
+            // New format: "Display3" -> 3
+            let numberPart = displayId.Substring(7)
+            match System.Int32.TryParse(numberPart) with
+            | true, result -> Some result
+            | false, _ -> None
+        elif displayId.StartsWith(@"\\.\DISPLAY") then
+            // Legacy format: "\\.\DISPLAY3" -> 3
+            let numberPart = displayId.Substring(11)
+            match System.Int32.TryParse(numberPart) with
+            | true, result -> Some result
+            | false, _ -> None
+        else None
+
+    /// Helper function to resolve Display ID to Target ID using WMI correlation
+    let private resolveTargetIdForDisplay (displayId: string) =
+        try
+            // We need to correlate Display3 with UID 176389 to get the correct Target ID
+            // Extract Windows Display Number from displayId (e.g., "Display3" -> 3)
+            match parseDisplayNumber displayId with
+            | Some windowsDisplayNumber ->
+                // Get WMI data to find the UID for this Windows Display Number
+                let wmiDisplays = WMIHardwareDetection.getWMIDisplayData()
+
+                let expectedSourceId = uint32 (windowsDisplayNumber - 1)
+                let allMappings = getDisplayTargetIdMapping()
+
+                let possibleTargets =
+                    allMappings
+                    |> List.filter (fun m -> m.SourceId = expectedSourceId && not m.IsActive)
+                    |> List.map (fun m -> m.TargetId)
+                    |> List.distinct
+
+                match possibleTargets with
+                | targetId :: _ ->
+                    printfn "[DEBUG] Resolved %s -> Source ID %u -> Target ID %u (inactive)" displayId expectedSourceId targetId
+                    Some targetId
+                | [] ->
+                    printfn "[DEBUG] No inactive target found for %s (Source ID %u)" displayId expectedSourceId
+                    None
+            | None ->
+                printfn "[DEBUG] Could not parse display number from %s" displayId
+                None
+        with
+        | ex ->
+            printfn "[DEBUG] Exception resolving target ID for %s: %s" displayId ex.Message
+            None
+
     /// Enhanced function to get display paths with validation
     let getDisplayPathsWithValidation includeInactive =
         result {
@@ -110,14 +160,8 @@ module CCDPathManagement =
     /// Find display path by source ID with multiple strategies
     let findDisplayPathBySourceId displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
         try
-            // Extract display number from "\\.\DISPLAY4" -> 4
-            let displayNumber =
-                if (displayId: string).StartsWith(@"\\.\DISPLAY") then
-                    let mutable result = 0
-                    match System.Int32.TryParse((displayId: string).Substring(11), &result) with
-                    | true -> Some result // Keep 1-based
-                    | false -> None
-                else None
+            // Extract display number from both "Display3" and "\\.\DISPLAY3" formats
+            let displayNumber = parseDisplayNumber displayId
 
             match displayNumber with
             | Some displayNum ->
@@ -128,11 +172,24 @@ module CCDPathManagement =
                     printfn "[DEBUG] Large path array (%d paths) - searching for Source ID %d" pathCount (displayNum - 1)
 
                 // Strategy 1: Find path with correct Source ID and Target that matches the display
+                // First try to get Target ID using Windows Display Number mapping (more reliable for inactive displays)
+                let targetIdFromWindowsMapping = resolveTargetIdForDisplay displayId
+
+                // Fallback to CCD mapping if Windows mapping fails
                 let targetIdMapping = getDisplayTargetIdMappingAsMap()
-                let targetId = Map.tryFind displayId targetIdMapping |> Option.defaultValue 0u
+                let targetIdFromCCDMapping = Map.tryFind displayId targetIdMapping
+
+                // Prefer Windows mapping over CCD mapping
+                let targetId =
+                    match targetIdFromWindowsMapping with
+                    | Some uid -> uid
+                    | None ->
+                        match targetIdFromCCDMapping with
+                        | Some ccdTargetId -> ccdTargetId
+                        | None -> 0u
 
                 printfn "[DEBUG] Display %s -> Target ID lookup: %s" displayId
-                    (if targetId = 0u then "No mapping found" else sprintf "%u" targetId)
+                    (if targetId = 0u then "No mapping found" else sprintf "%u (from %s)" targetId (if targetIdFromWindowsMapping.IsSome then "Windows mapping" else "CCD mapping"))
 
                 let matchingPaths =
                     [0 .. int pathCount - 1]
@@ -147,6 +204,14 @@ module CCDPathManagement =
                             Some (path, i)
                         else
                             None)
+                    // If we have a specific target ID, prioritize exact target matches
+                    |> (fun paths ->
+                        if targetId <> 0u then
+                            // Sort so exact target ID matches come first
+                            paths |> List.sortBy (fun (path, _) ->
+                                if path.targetInfo.id = targetId then 0 else 1)
+                        else
+                            paths)
 
                 match matchingPaths with
                 | (path, index) :: _ ->
@@ -202,29 +267,36 @@ module CCDPathManagement =
     /// Simplified but robust mapping that works for both enabling and disabling displays
     let findDisplayPathByDevice displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
         try
-            // Extract display number from "\\.\DISPLAY3" -> 3
-            let displayNumber =
-                if (displayId: string).StartsWith(@"\\.\DISPLAY") then
-                    let mutable result = 0
-                    match System.Int32.TryParse((displayId: string).Substring(11), &result) with
-                    | true -> Some result // Keep 1-based for easier debugging
-                    | false -> None
-                else None
+            // Extract display number from both "Display3" and "\\.\DISPLAY3" formats
+            let displayNumber = parseDisplayNumber displayId
 
             match displayNumber with
             | Some displayNum ->
                 printfn "[DEBUG] Looking for display %d in %d paths" displayNum pathCount
 
-                // Strategy 1: Look for paths by source ID (most reliable)
+                // Get Target ID for more precise matching
+                let targetId = resolveTargetIdForDisplay displayId |> Option.defaultValue 0u
+
+                // Strategy 1: Look for paths by source ID and target ID (most reliable)
                 let foundPathResult =
                     [0 .. int pathCount - 1]
-                    |> List.tryFind (fun i ->
+                    |> List.choose (fun i ->
                         let path = paths.[i]
-                        if int path.sourceInfo.id = (displayNum - 1) then
-                            printfn "[DEBUG] Found path with source ID %d matching display %d" path.sourceInfo.id displayNum
-                            true
-                        else false)
-                    |> Option.map (fun i -> (paths.[i], i))
+                        let sourceIdMatches = int path.sourceInfo.id = (displayNum - 1)
+                        let targetMatches = targetId = 0u || path.targetInfo.id = targetId
+
+                        if sourceIdMatches && targetMatches then
+                            printfn "[DEBUG] Found path %d with source ID %d and target ID %u matching display %d"
+                                i path.sourceInfo.id path.targetInfo.id displayNum
+                            Some (path, i)
+                        else None)
+                    // Prioritize exact target ID matches if we have a specific target
+                    |> (fun paths ->
+                        if targetId <> 0u then
+                            paths |> List.sortBy (fun (path, _) ->
+                                if path.targetInfo.id = targetId then 0 else 1)
+                        else paths)
+                    |> List.tryHead
 
                 match foundPathResult with
                 | Some (path, foundIndex) ->

@@ -61,10 +61,14 @@ module UIComponents =
         rect.RadiusX <- 8.0
         rect.RadiusY <- 8.0
         
-        // Extract display number from device ID (e.g., "\\.\DISPLAY1" -> "1")
-        let displayNumber = 
-            let deviceName = display.Id.Replace(@"\\.\DISPLAY", "")
-            if String.IsNullOrEmpty(deviceName) then "?" else deviceName
+        // Extract Windows Display Number from new ID format (e.g., "Display1" -> "1")
+        let displayNumber =
+            if display.Id.StartsWith("Display") then
+                display.Id.Substring(7)  // Remove "Display" prefix
+            else
+                // Fallback for old format or unexpected format
+                let deviceName = display.Id.Replace(@"\\.\DISPLAY", "")
+                if String.IsNullOrEmpty(deviceName) then "?" else deviceName
         
         // Get just the monitor name without the display number prefix
         let monitorName = 
@@ -189,10 +193,14 @@ module UIComponents =
             printfn "DEBUG: Creating card for display %s - Enabled: %b, Has Capabilities: %b" 
                 display.Name display.IsEnabled display.Capabilities.IsSome
             
-            // Extract display number from device ID
-            let displayNumber = 
-                let deviceName = display.Id.Replace(@"\\.\DISPLAY", "")
-                if String.IsNullOrEmpty(deviceName) then "?" else deviceName
+            // Extract Windows Display Number from new ID format (e.g., "Display1" -> "1")
+            let displayNumber =
+                if display.Id.StartsWith("Display") then
+                    display.Id.Substring(7)  // Remove "Display" prefix
+                else
+                    // Fallback for old format or unexpected format
+                    let deviceName = display.Id.Replace(@"\\.\DISPLAY", "")
+                    if String.IsNullOrEmpty(deviceName) then "?" else deviceName
             
             // Get just the monitor name without the display number prefix
             let monitorName = 

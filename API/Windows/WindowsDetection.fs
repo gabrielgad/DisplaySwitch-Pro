@@ -302,10 +302,14 @@ module DisplayDetection =
 
         // Get position from monitor bounds or use default for inactive displays
         let position =
-            match enumDisplay.MonitorBounds with
-            | Some (left, top, right, bottom) ->
-                { X = left; Y = top }
-            | None ->
+            if effectiveIsActive then
+                match enumDisplay.MonitorBounds with
+                | Some (left, top, right, bottom) ->
+                    { X = left; Y = top }
+                | None ->
+                    // Active display without bounds - shouldn't happen, but use default
+                    { X = 0; Y = 0 }
+            else
                 // Position inactive displays away from active ones
                 { X = DetectionConstants.InactiveDisplayOffset; Y = 0 }
 
