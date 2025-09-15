@@ -867,9 +867,12 @@ module DisplayControl =
         | Ok (pathArray, modeArray, pathCount, modeCount) ->
             // Find the correct path using target mapping approach from TV fix
             let targetMappings = CCDTargetMapping.getDisplayTargetIdMapping()
+
+            // Convert Display ID to API device name for mapping lookup
+            let apiDeviceName = getAPIDeviceNameForDisplay displayId
             let targetIdOption =
                 targetMappings
-                |> List.tryFind (fun m -> m.DisplayName = displayId)
+                |> List.tryFind (fun m -> m.DisplayName = apiDeviceName)
                 |> Option.map (fun m -> m.TargetId)
 
             match targetIdOption with

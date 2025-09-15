@@ -275,6 +275,13 @@ module DisplayDetection =
             }
     
 
+    // Helper to calculate non-overlapping positions for inactive displays
+    let private calculateInactiveDisplayPosition (inactiveDisplayIndex: int) =
+        let baseOffset = DetectionConstants.InactiveDisplayOffset
+        let displayWidth = DetectionConstants.DefaultDisplayWidth
+        let xOffset = baseOffset + (inactiveDisplayIndex * (displayWidth + 100)) // Add 100px spacing between inactive displays
+        { X = xOffset; Y = 0 }
+
     // Convert enumerated display to DisplayInfo with business logic for disabled displays
     let private convertEnumeratedDisplayToDisplayInfo (enumDisplay: EnumeratedDisplay) : DisplayInfo =
         // Business logic: Check if this display was recently disabled
@@ -381,13 +388,29 @@ module DisplayDetection =
         // Convert to DisplayInfo with business logic
         let displayInfos = enumeratedDisplays |> List.map convertEnumeratedDisplayToDisplayInfo
 
-        printfn "Found %d displays total" displayInfos.Length
-        let activeCount = displayInfos |> List.filter (fun d -> d.IsEnabled) |> List.length
-        let inactiveCount = displayInfos |> List.filter (fun d -> not d.IsEnabled) |> List.length
+        // Fix positioning for inactive displays to prevent overlap
+        let (activeDisplays, inactiveDisplays) = displayInfos |> List.partition (fun d -> d.IsEnabled)
+
+        let repositionedInactiveDisplays =
+            inactiveDisplays
+            |> List.mapi (fun index display ->
+                let newPosition = calculateInactiveDisplayPosition index
+                { display with Position = newPosition })
+
+        let finalDisplayInfos = activeDisplays @ repositionedInactiveDisplays
+
+        printfn "Found %d displays total" finalDisplayInfos.Length
+        let activeCount = activeDisplays.Length
+        let inactiveCount = repositionedInactiveDisplays.Length
         printfn "  - %d active displays" activeCount
         printfn "  - %d inactive/connected displays" inactiveCount
 
-        displayInfos
+        if inactiveCount > 0 then
+            printfn "[DEBUG] Positioned inactive displays at non-overlapping locations:"
+            repositionedInactiveDisplays |> List.iteri (fun i display ->
+                printfn "[DEBUG]   %s at (%d, %d)" display.Id display.Position.X display.Position.Y)
+
+        finalDisplayInfos
 
     // Mapping function to convert Windows Display Number back to API device name for legacy API calls
     let getAPIDeviceNameForDisplayId (displayId: DisplayId) : string option =

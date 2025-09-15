@@ -282,11 +282,22 @@ module DisplayCanvas =
                 | :? (float * float * float) as transform -> transform
                 | _ -> (600.0, 400.0, 0.1)  // Fallback values
             
-            // Transform Windows coordinates to canvas coordinates
-            // Windows (0, 0) for primary display maps to canvas center (centerX, centerY)
-            let canvasX = (float display.Position.X * scale) + centerX
-            let canvasY = (float display.Position.Y * scale) + centerY
-            
+            // Handle positioning differently for inactive displays
+            let (canvasX, canvasY) =
+                if not display.IsEnabled && display.Position.X >= 5000 then
+                    // Special positioning for inactive displays - arrange them vertically on the right side
+                    let inactiveDisplayIndex = (display.Position.X - 5000) / 2020  // Calculate index based on spacing
+                    let rightSideX = canvas.Width - visualDisplay.Border.Width - 20.0  // 20px margin from right edge
+                    let verticalSpacing = 120.0  // Space between inactive displays vertically
+                    let startY = 50.0  // Starting Y position for first inactive display
+                    (rightSideX, startY + (float inactiveDisplayIndex * verticalSpacing))
+                else
+                    // Normal positioning for active displays
+                    // Windows (0, 0) for primary display maps to canvas center (centerX, centerY)
+                    let x = (float display.Position.X * scale) + centerX
+                    let y = (float display.Position.Y * scale) + centerY
+                    (x, y)
+
             // Ensure the display is within canvas bounds (with validation)
             let boundedX = Math.Max(0.0, Math.Min(canvasX, canvas.Width - visualDisplay.Border.Width))
             let boundedY = Math.Max(0.0, Math.Min(canvasY, canvas.Height - visualDisplay.Border.Height))
