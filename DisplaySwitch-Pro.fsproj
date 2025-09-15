@@ -33,6 +33,7 @@
     <Compile Include="API/Windows/WindowsDisplayNumbering.fs" />
     <Compile Include="API/Windows/WindowsDisplayEnumeration.fs" />
     <Compile Include="API/Windows/WindowsDetection.fs" />
+    <Compile Include="API/Windows/DisplayMonitor.fs" />
     <Compile Include="API/Windows/WindowsCCDAPI.fs" />
     <Compile Include="API/Windows/WindowsControl.fs" />
     <Compile Include="API/Common/PresetManager.fs" />

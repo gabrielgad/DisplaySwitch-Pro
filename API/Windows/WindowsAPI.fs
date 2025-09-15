@@ -88,6 +88,10 @@ module WindowsAPI =
         let DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004u
         let DISPLAY_DEVICE_MIRRORING_DRIVER = 0x00000008u
 
+    // System metrics constants
+    module SystemMetrics =
+        let SM_CMONITORS = 80
+
     // P/Invoke declarations
     [<DllImport("user32.dll")>]
     extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr lprcClip, 
@@ -287,6 +291,12 @@ module WindowsAPI =
         let ERROR_INSUFFICIENT_BUFFER = 122
         let ERROR_GEN_FAILURE = 31
 
+    // Windows messages for display change detection
+    module WindowsMessages =
+        let WM_DISPLAYCHANGE = 0x007E
+        let WM_DEVICECHANGE = 0x0219
+        let DBT_DEVNODES_CHANGED = 0x0007
+
     // CCD (Connecting and Configuring Displays) API functions
     [<DllImport("user32.dll")>]
     extern int GetDisplayConfigBufferSizes(uint32 flags, uint32& numPathArrayElements, uint32& numModeInfoArrayElements)
@@ -304,3 +314,7 @@ module WindowsAPI =
                                 uint32 numModeInfoArrayElements,
                                 DISPLAYCONFIG_MODE_INFO[] modeInfoArray,
                                 uint32 flags)
+
+    // System metrics for lightweight display count check
+    [<DllImport("user32.dll")>]
+    extern int GetSystemMetrics(int nIndex)

@@ -3,8 +3,11 @@ namespace DisplaySwitchPro
 open System
 open Avalonia.Controls
 
-// GUI coordinator module
+// GUI coordinator module with functional display monitoring
 module GUI =
+
+    // Local state for display monitoring (using ref for interop with timer)
+    let private monitorStateRef : DisplayMonitor.MonitorState option ref = ref None
     
     // Refresh main window content
     let rec refreshMainWindowContent () =
@@ -36,11 +39,43 @@ module GUI =
             | None -> ()
         | None -> ()
     
+    // Handle display change events from the monitor (pure function)
+    let private onDisplayChanged (changeEvent: DisplayMonitor.DisplayChangeEvent) =
+        printfn "[DisplayMonitor] Display change detected: %A" changeEvent.ChangeType
+        printfn "[DisplayMonitor] Previous displays: %d, Current displays: %d"
+            changeEvent.PreviousDisplays.Length changeEvent.CurrentDisplays.Length
+
+        // Refresh the UI to reflect display changes
+        refreshMainWindowContent()
+
+    // Start display monitoring functionally
+    let private startDisplayMonitoring() =
+        match !monitorStateRef with
+        | Some _ ->
+            printfn "[GUI] Display monitoring already active"
+        | None ->
+            let monitorState = DisplayMonitor.startMonitoring onDisplayChanged 2000
+            monitorStateRef := Some monitorState
+            printfn "[GUI] Started display change monitoring"
+
+    // Stop display monitoring functionally
+    let private stopDisplayMonitoring() =
+        match !monitorStateRef with
+        | Some monitorState ->
+            DisplayMonitor.stopMonitoring monitorState
+            monitorStateRef := None
+            printfn "[GUI] Stopped display monitoring"
+        | None ->
+            printfn "[GUI] No active display monitoring to stop"
+
     // Initialize the GUI modules with refresh function references
     let private initializeModules() =
         MainContentPanel.setRefreshFunction refreshMainWindowContent
         WindowManager.setRefreshFunction refreshMainWindowContent
         UIComponents.setRefreshFunction refreshMainWindowContent
+
+        // Start display monitoring
+        startDisplayMonitoring()
     
     // Create main window
     let createMainWindow (appState: AppState) (adapter: IPlatformAdapter) =
