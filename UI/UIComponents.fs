@@ -17,6 +17,32 @@ module UIComponents =
     // Set the refresh function reference
     let setRefreshFunction refreshFunc =
         refreshMainWindowContentRef <- Some refreshFunc
+
+    // Extract just the monitor name from full display name
+    let private extractMonitorName (fullDisplayName: string) =
+        // Input examples:
+        // "Display 1 (Primary) (Samsung Q80A)" -> "Samsung Q80A"
+        // "Display 1 (Samsung Q80A)" -> "Samsung Q80A"
+        // "Display 2 (Samsung Q80A) [Inactive]" -> "Samsung Q80A"
+
+        let nameWithoutInactive =
+            if fullDisplayName.EndsWith(" [Inactive]") then
+                fullDisplayName.Substring(0, fullDisplayName.Length - 11)
+            else
+                fullDisplayName
+
+        // Find the last occurrence of opening parenthesis to get the monitor name
+        let lastParenIndex = nameWithoutInactive.LastIndexOf(" (")
+        if lastParenIndex >= 0 then
+            let afterParen = nameWithoutInactive.Substring(lastParenIndex + 2)
+            if afterParen.EndsWith(")") then
+                afterParen.Substring(0, afterParen.Length - 1)
+            else
+                // Fallback if parentheses don't match
+                nameWithoutInactive
+        else
+            // No parentheses found, return as-is
+            nameWithoutInactive
     
     // Helper function to call refresh
     let private refreshMainWindowContent() =
@@ -71,16 +97,7 @@ module UIComponents =
                 if String.IsNullOrEmpty(deviceName) then "?" else deviceName
         
         // Get just the monitor name without the display number prefix
-        let monitorName = 
-            if display.Name.Contains("(") && display.Name.Contains(")") then
-                let startIdx = display.Name.IndexOf("(") + 1
-                let endIdx = display.Name.LastIndexOf(")")
-                if endIdx > startIdx then
-                    display.Name.Substring(startIdx, endIdx - startIdx)
-                else
-                    display.Name
-            else
-                display.Name
+        let monitorName = extractMonitorName display.Name
         
         // Create a stack panel for layered text (number, device name, resolution)
         let textStack = StackPanel()
@@ -108,18 +125,19 @@ module UIComponents =
         deviceLabel.FontSize <- if width > 100.0 then 10.0 else 8.0
         deviceLabel.Margin <- Thickness(0.0, 0.0, 0.0, 2.0)
         
-        // Resolution
-        let resolutionLabel = TextBlock()
-        resolutionLabel.Text <- sprintf "%dx%d" display.Resolution.Width display.Resolution.Height
-        resolutionLabel.HorizontalAlignment <- HorizontalAlignment.Center
-        resolutionLabel.TextAlignment <- TextAlignment.Center
-        resolutionLabel.Foreground <- if Theme.currentTheme = Theme.Light then Brushes.White :> IBrush else SolidColorBrush(colors.Text) :> IBrush
-        resolutionLabel.FontWeight <- FontWeight.SemiBold
-        resolutionLabel.FontSize <- if width > 100.0 then 9.0 else 7.0
-        
         textStack.Children.Add(numberLabel)
         textStack.Children.Add(deviceLabel)
-        textStack.Children.Add(resolutionLabel)
+
+        // Only show resolution for enabled displays
+        if display.IsEnabled then
+            let resolutionLabel = TextBlock()
+            resolutionLabel.Text <- sprintf "%dx%d" display.Resolution.Width display.Resolution.Height
+            resolutionLabel.HorizontalAlignment <- HorizontalAlignment.Center
+            resolutionLabel.TextAlignment <- TextAlignment.Center
+            resolutionLabel.Foreground <- if Theme.currentTheme = Theme.Light then Brushes.White :> IBrush else SolidColorBrush(colors.Text) :> IBrush
+            resolutionLabel.FontWeight <- FontWeight.SemiBold
+            resolutionLabel.FontSize <- if width > 100.0 then 9.0 else 7.0
+            textStack.Children.Add(resolutionLabel)
         
         // Create shadow effect for the entire stack
         let shadowStack = StackPanel()
@@ -146,17 +164,19 @@ module UIComponents =
         shadowDevice.FontSize <- deviceLabel.FontSize
         shadowDevice.Margin <- deviceLabel.Margin
         
-        let shadowResolution = TextBlock()
-        shadowResolution.Text <- resolutionLabel.Text
-        shadowResolution.HorizontalAlignment <- resolutionLabel.HorizontalAlignment
-        shadowResolution.TextAlignment <- resolutionLabel.TextAlignment
-        shadowResolution.Foreground <- SolidColorBrush(Color.FromArgb(100uy, 0uy, 0uy, 0uy)) :> IBrush
-        shadowResolution.FontWeight <- resolutionLabel.FontWeight
-        shadowResolution.FontSize <- resolutionLabel.FontSize
-        
         shadowStack.Children.Add(shadowNumber)
         shadowStack.Children.Add(shadowDevice)
-        shadowStack.Children.Add(shadowResolution)
+
+        // Only add shadow resolution if display is enabled (matches main resolution logic)
+        if display.IsEnabled then
+            let shadowResolution = TextBlock()
+            shadowResolution.Text <- sprintf "%dx%d" display.Resolution.Width display.Resolution.Height
+            shadowResolution.HorizontalAlignment <- HorizontalAlignment.Center
+            shadowResolution.TextAlignment <- TextAlignment.Center
+            shadowResolution.Foreground <- SolidColorBrush(Color.FromArgb(100uy, 0uy, 0uy, 0uy)) :> IBrush
+            shadowResolution.FontWeight <- FontWeight.SemiBold
+            shadowResolution.FontSize <- if width > 100.0 then 9.0 else 7.0
+            shadowStack.Children.Add(shadowResolution)
         
         let border = Border()
         border.Width <- width
@@ -203,16 +223,7 @@ module UIComponents =
                     if String.IsNullOrEmpty(deviceName) then "?" else deviceName
             
             // Get just the monitor name without the display number prefix
-            let monitorName = 
-                if display.Name.Contains("(") && display.Name.Contains(")") then
-                    let startIdx = display.Name.IndexOf("(") + 1
-                    let endIdx = display.Name.LastIndexOf(")")
-                    if endIdx > startIdx then
-                        display.Name.Substring(startIdx, endIdx - startIdx)
-                    else
-                        display.Name
-                else
-                    display.Name
+            let monitorName = extractMonitorName display.Name
             
             let displayCard = Border()
             displayCard.Background <- SolidColorBrush(if Theme.currentTheme = Theme.Light then Color.FromRgb(249uy, 250uy, 251uy) else colors.Surface) :> IBrush
@@ -263,13 +274,15 @@ module UIComponents =
             nameText.MaxWidth <- 180.0
             displayInfo.Children.Add(nameText)
             
-            let resolutionText = TextBlock()
-            resolutionText.Text <- sprintf "%dx%d @ %dHz" display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate
-            resolutionText.FontSize <- 11.0
-            resolutionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
-            resolutionText.TextAlignment <- TextAlignment.Center
-            resolutionText.TextWrapping <- TextWrapping.Wrap
-            displayInfo.Children.Add(resolutionText)
+            // Only show resolution/refresh rate for enabled displays
+            if display.IsEnabled then
+                let resolutionText = TextBlock()
+                resolutionText.Text <- sprintf "%dx%d @ %dHz" display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate
+                resolutionText.FontSize <- 11.0
+                resolutionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
+                resolutionText.TextAlignment <- TextAlignment.Center
+                resolutionText.TextWrapping <- TextWrapping.Wrap
+                displayInfo.Children.Add(resolutionText)
             
             let statusText = TextBlock()
             // Show different status based on whether it's actually inactive vs software disabled
@@ -280,20 +293,26 @@ module UIComponents =
                     "Active"
                 else
                     "Software Disabled" // Disabled via application
-            statusText.Text <- sprintf "%s • %s" (if display.IsPrimary then "Primary" else "Secondary") statusDescription
+            statusText.Text <-
+                if display.Name.Contains("[Inactive]") then
+                    statusDescription // Just show "Hardware Inactive" for disconnected displays
+                else
+                    sprintf "%s • %s" (if display.IsPrimary then "Primary" else "Secondary") statusDescription
             statusText.FontSize <- 10.0
             statusText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
             statusText.TextAlignment <- TextAlignment.Center
             statusText.TextWrapping <- TextWrapping.Wrap
             displayInfo.Children.Add(statusText)
             
-            let positionText = TextBlock()
-            positionText.Text <- sprintf "Position: (%d, %d)" display.Position.X display.Position.Y
-            positionText.FontSize <- 9.0
-            positionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
-            positionText.TextAlignment <- TextAlignment.Center
-            positionText.TextWrapping <- TextWrapping.Wrap
-            displayInfo.Children.Add(positionText)
+            // Only show position for enabled displays
+            if display.IsEnabled then
+                let positionText = TextBlock()
+                positionText.Text <- sprintf "Position: (%d, %d)" display.Position.X display.Position.Y
+                positionText.FontSize <- 9.0
+                positionText.Foreground <- SolidColorBrush(colors.TextSecondary) :> IBrush
+                positionText.TextAlignment <- TextAlignment.Center
+                positionText.TextWrapping <- TextWrapping.Wrap
+                displayInfo.Children.Add(positionText)
             
             cardContent.Children.Add(displayInfo)
             
@@ -374,7 +393,7 @@ module UIComponents =
         Grid.SetRow(headerPanel, 0)
         
         let titleText = TextBlock()
-        titleText.Text <- sprintf "🖥️ %s Settings" display.Name
+        titleText.Text <- sprintf "🖥️ %s Settings" (extractMonitorName display.Name)
         titleText.FontSize <- 18.0
         titleText.FontWeight <- FontWeight.Bold
         titleText.Foreground <- SolidColorBrush(colors.Text)
@@ -571,17 +590,24 @@ module UIComponents =
                 match DisplayControl.setPrimaryDisplay display.Id with
                 | Ok () ->
                     Logging.logNormalf "SUCCESS: Successfully set %s as primary display" display.Id
-                    
+
                     // Update UI state
                     primaryToggle.Background <- SolidColorBrush(colors.Secondary)
                     primaryText.Text <- "✓ Primary"
                     primaryText.Foreground <- SolidColorBrush(Colors.White)
-                    
+
                     // Refresh the UI to reflect the primary display change
                     Logging.logNormalf " Primary display set successfully. Refreshing UI to show changes."
-                    
-                    // Call the refresh function to reload display state from Windows and update UI
-                    refreshMainWindowContent()
+
+                    // Close this dialog first to prevent UI conflicts
+                    onClose()
+
+                    // Use a small delay to ensure Windows API changes have propagated
+                    async {
+                        do! Async.Sleep(100)
+                        // Force refresh of display state from Windows API
+                        refreshMainWindowContent()
+                    } |> Async.StartImmediate
                     
                 | Error err ->
                     Logging.logErrorf " Failed to set %s as primary: %s" display.Id err
@@ -1138,7 +1164,7 @@ module UIComponents =
         
         // Create dialog window
         let dialogWindow = Window()
-        dialogWindow.Title <- sprintf "Display Settings - %s" display.Name
+        dialogWindow.Title <- sprintf "Display Settings - %s" (extractMonitorName display.Name)
         dialogWindow.Width <- 700.0
         dialogWindow.Height <- 550.0
         dialogWindow.MinWidth <- 600.0
