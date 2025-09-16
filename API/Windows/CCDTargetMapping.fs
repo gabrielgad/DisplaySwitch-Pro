@@ -20,7 +20,7 @@ module CCDTargetMapping =
     /// Get display target ID mapping using CCD API with WMI correlation
     let getDisplayTargetIdMapping() =
         try
-            printfn "[DEBUG] Building display-to-target ID mapping using CCD API..."
+            Logging.logVerbosef " Building display-to-target ID mapping using CCD API..."
 
             // Use raw Windows API calls to get display paths
             let mutable pathCount = 0u
@@ -35,7 +35,7 @@ module CCDTargetMapping =
                 // Query display configuration - use ALL_PATHS to get complete enumeration order
                 let queryResult = QueryDisplayConfig(QDC.QDC_ALL_PATHS, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
                 if queryResult = 0 then
-                    printfn "[DEBUG] Found %d CCD paths for target mapping" pathCount
+                    Logging.logVerbosef " Found %d CCD paths for target mapping" pathCount
 
                     // Get WMI monitor information with target IDs
                     let wmiByTargetId = getWMIDisplaysByTargetId()
@@ -67,27 +67,27 @@ module CCDTargetMapping =
 
                             match friendlyName with
                             | Some name ->
-                                printfn "[DEBUG] CCD Mapping: %s (Source %d) -> Target %u (%s) [%s]"
+                                Logging.logVerbosef " CCD Mapping: %s (Source %d) -> Target %u (%s) [%s]"
                                     displayName sourceId targetId name (if isActive then "Active" else "Inactive")
                             | None ->
-                                printfn "[DEBUG] CCD Mapping: %s (Source %d) -> Target %u (No WMI data) [%s]"
+                                Logging.logVerbosef " CCD Mapping: %s (Source %d) -> Target %u (No WMI data) [%s]"
                                     displayName sourceId targetId (if isActive then "Active" else "Inactive")
 
                             Some mapping)
                         |> Array.toList
 
-                    printfn "[DEBUG] Created CCD target mapping for %d displays" mapping.Length
+                    Logging.logVerbosef " Created CCD target mapping for %d displays" mapping.Length
                     mapping
                 else
-                    printfn "[ERROR] QueryDisplayConfig failed with code: %d" queryResult
+                    Logging.logErrorf " QueryDisplayConfig failed with code: %d" queryResult
                     []
             else
-                printfn "[ERROR] GetDisplayConfigBufferSizes failed with code: %d" sizeResult
+                Logging.logErrorf " GetDisplayConfigBufferSizes failed with code: %d" sizeResult
                 []
 
         with
         | ex ->
-            printfn "[ERROR] Failed to build display-target ID mapping: %s" ex.Message
+            Logging.logErrorf " Failed to build display-target ID mapping: %s" ex.Message
             []
 
     /// Get target ID for a specific display device name

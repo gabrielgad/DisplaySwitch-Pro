@@ -95,12 +95,12 @@ module DisplayMonitor =
                         | Some lastLog -> (DateTime.Now - lastLog).TotalSeconds > 30.0
 
                     if shouldLog then
-                        printfn "[DisplayMonitor] No changes detected (count: %d)" currentDisplayCount
+                        Logging.logVerbosef "[DisplayMonitor] No changes detected (count: %d)" currentDisplayCount
                         stateRef := { currentState with LastNoChangeLogTime = Some DateTime.Now }
                     ()
                 else
                     // Step 3: Display count changed, run full enumeration
-                    printfn "[DisplayMonitor] Display count changed from %d to %d, running full detection" lastDisplayCount currentDisplayCount
+                    Logging.logVerbosef "[DisplayMonitor] Display count changed from %d to %d, running full detection" lastDisplayCount currentDisplayCount
                     let currentDisplays = getDisplays()
                     let previousDisplays = currentState.LastDisplays
 
@@ -119,14 +119,14 @@ module DisplayMonitor =
                         // Notify on UI thread
                         Dispatcher.UIThread.InvokeAsync(fun () -> onDisplayChanged changeEvent) |> ignore
 
-                        printfn "[DisplayMonitor] Change detected: %A" changeType
+                        Logging.logVerbosef "[DisplayMonitor] Change detected: %A" changeType
                     | None ->
                         // Update display count even if no logical changes detected
                         stateRef := { currentState with LastDisplayCount = currentDisplayCount }
-                        printfn "[DisplayMonitor] Display count changed but no logical changes detected"
+                        Logging.logVerbosef "[DisplayMonitor] Display count changed but no logical changes detected"
             with
             | ex ->
-                printfn "[DisplayMonitor] Error during monitoring: %s" ex.Message
+                Logging.logVerbosef "[DisplayMonitor] Error during monitoring: %s" ex.Message
 
     /// Start display monitoring with functional composition
     let startMonitoring (onDisplayChanged: DisplayChangeEvent -> unit) (intervalMs: int) : MonitorState =
@@ -150,7 +150,7 @@ module DisplayMonitor =
         }
         stateRef := finalState
 
-        printfn "[DisplayMonitor] Started monitoring with %d displays, %d count (interval: %dms)"
+        Logging.logVerbosef "[DisplayMonitor] Started monitoring with %d displays, %d count (interval: %dms)"
             initialDisplays.Length initialDisplayCount intervalMs
 
         finalState
@@ -160,9 +160,9 @@ module DisplayMonitor =
         match state.Timer with
         | Some timer ->
             timer.Dispose()
-            printfn "[DisplayMonitor] Monitoring stopped"
+            Logging.logVerbosef "[DisplayMonitor] Monitoring stopped"
         | None ->
-            printfn "[DisplayMonitor] No active monitoring to stop"
+            Logging.logVerbosef "[DisplayMonitor] No active monitoring to stop"
 
     /// Check for display changes immediately (pure function)
     let checkDisplayChanges (currentState: MonitorState) : DisplayChangeEvent option =

@@ -65,7 +65,7 @@ module WindowsDisplayEnumeration =
 
                 let queryResult = QueryDisplayConfig(QDC.QDC_ONLY_ACTIVE_PATHS, &pathCount, pathArray, &modeCount, modeArray, IntPtr.Zero)
                 if queryResult = 0 then
-                    printfn "[DEBUG] CCD found %d active paths:" (int pathCount)
+                    Logging.logVerbosef " CCD found %d active paths:" (int pathCount)
                     pathArray
                     |> Array.take (int pathCount)
                     |> Array.map (fun path ->
@@ -75,7 +75,7 @@ module WindowsDisplayEnumeration =
                             TargetID = uint32 path.targetInfo.id
                             APIDeviceName = displayName
                         }
-                        printfn "[DEBUG]   Path %d: Source ID %d -> %s (Target ID: %d)" ccdPath.SourceID ccdPath.SourceID displayName (int ccdPath.TargetID)
+                        Logging.logVerbosef "   Path %d: Source ID %d -> %s (Target ID: %d)" ccdPath.SourceID ccdPath.SourceID displayName (int ccdPath.TargetID)
                         ccdPath)
                     |> List.ofArray
                 else
@@ -98,7 +98,7 @@ module WindowsDisplayEnumeration =
     // Enumerate all displays with complete information
     let enumerateAllDisplays() : EnumeratedDisplay list =
         try
-            printfn "[INFO] Enumerating all Windows displays with complete information..."
+            Logging.logVerbose "Enumerating all Windows displays with complete information..."
 
             // Get Windows Display numbering algorithm results
             let displayAdapter = createDisplayAdapter()
@@ -110,23 +110,23 @@ module WindowsDisplayEnumeration =
             else
                 // Get all Windows API display devices
                 let allDevices = getAllDisplayDevicesWithFlags()
-                printfn "[DEBUG] Found %d Windows API display devices" allDevices.Length
+                Logging.logVerbosef " Found %d Windows API display devices" allDevices.Length
 
                 // Get active monitor bounds
                 let activeBounds = MonitorBoundsDetection.getActiveMonitorBounds()
                 let monitorBounds = activeBounds |> Map.map (fun _ bounds -> (bounds.Left, bounds.Top, bounds.Right, bounds.Bottom))
-                printfn "[DEBUG] Found %d active monitor bounds" (Map.count monitorBounds)
+                Logging.logVerbosef " Found %d active monitor bounds" (Map.count monitorBounds)
 
                 // Get CCD path information for three-way correlation
                 let ccdPaths = getCCDPathInformation()
-                printfn "[DEBUG] Found %d CCD paths for correlation" ccdPaths.Length
+                Logging.logVerbosef " Found %d CCD paths for correlation" ccdPaths.Length
 
                 // Get active displays from CCD (legacy)
                 let activeDisplaysFromCCD = getActiveDisplaysFromCCD()
-                printfn "[DEBUG] Found %d active displays from CCD" (Set.count activeDisplaysFromCCD)
+                Logging.logVerbosef " Found %d active displays from CCD" (Set.count activeDisplaysFromCCD)
 
                 // Three-way correlation: WMI + EDID + CCD paths
-                printfn "[DEBUG] Starting three-way correlation (WMI + EDID + CCD)..."
+                Logging.logVerbosef " Starting three-way correlation (WMI + EDID + CCD)..."
 
                 mappings
                 |> List.groupBy (fun mapping -> mapping.UID)
@@ -143,13 +143,13 @@ module WindowsDisplayEnumeration =
                     match activeMapping with
                     | Some mapping ->
                         let ccdPath = ccdPaths |> List.find (fun p -> p.APIDeviceName = mapping.APIDeviceName && p.TargetID = mapping.UID)
-                        printfn "[DEBUG] ✓ Three-way correlation: UID %u (%s) -> %s -> CCD Target %u (ACTIVE)"
+                        Logging.logVerbosef " ✓ Three-way correlation: UID %u (%s) -> %s -> CCD Target %u (ACTIVE)"
                             mapping.UID mapping.FriendlyName mapping.APIDeviceName ccdPath.TargetID
                         Some (mapping, true)  // (mapping, isActive)
                     | None ->
                         // Include inactive displays but mark them as inactive
                         let inactiveMapping = mappingsForUID |> List.head
-                        printfn "[DEBUG] ✗ Three-way correlation: UID %u (%s) -> No active CCD path found (INACTIVE)"
+                        Logging.logVerbosef " ✗ Three-way correlation: UID %u (%s) -> No active CCD path found (INACTIVE)"
                             uid inactiveMapping.FriendlyName
                         Some (inactiveMapping, false)  // (mapping, isActive)
                 )
@@ -187,7 +187,7 @@ module WindowsDisplayEnumeration =
                             MonitorBounds = bounds
                         }
 
-                        printfn "[INFO] Display %d: %s (API: %s, Active: %b, Attached: %b, HasMonitor: %b)"
+                        Logging.logVerbosef "Display %d: %s (API: %s, Active: %b, Attached: %b, HasMonitor: %b)"
                             mapping.WindowsDisplayNumber mapping.FriendlyName device.DeviceName
                             display.IsActive isAttachedToDesktop hasMonitorInfo
 
@@ -221,7 +221,7 @@ module WindowsDisplayEnumeration =
 
         with
         | ex ->
-            printfn "[ERROR] Display enumeration failed: %s" ex.Message
+            Logging.logErrorf " Display enumeration failed: %s" ex.Message
             []
 
     // Get only enabled/active displays

@@ -13,7 +13,7 @@ type CrossPlatformAdapter() =
     interface IPlatformAdapter with
         member _.GetConnectedDisplays() =
             try
-                printfn "Detecting displays on %s..." (Environment.OSVersion.Platform.ToString())
+                Logging.logNormalf "Detecting displays on %s..." (Environment.OSVersion.Platform.ToString())
                 
                 // Use platform-specific detection
                 if Environment.OSVersion.Platform = PlatformID.Win32NT then
@@ -25,7 +25,7 @@ type CrossPlatformAdapter() =
                     let isX11 = not (String.IsNullOrEmpty(displayEnv))
                     
                     if isX11 then
-                        printfn "X11 display detected: %s" displayEnv
+                        Logging.logNormalf "X11 display detected: %s" displayEnv
                         [
                             {
                                 Id = "X11_PRIMARY"
@@ -54,15 +54,15 @@ type CrossPlatformAdapter() =
                         ]
             with
             | ex -> 
-                printfn $"Warning: Could not detect displays: {ex.Message}"
+                Logging.logErrorf "Warning: Could not detect displays: %s" ex.Message
                 []
                 
         member _.ApplyDisplayConfiguration(config: DisplayConfiguration) =
             try
                 // Mock implementation - in reality this would call OS APIs
-                printfn $"Applying configuration: {config.Name}"
+                Logging.logNormalf "Applying configuration: %s" config.Name
                 for display in config.Displays do
-                    printfn $"  Display {display.Id}: {display.Resolution.Width}x{display.Resolution.Height} at ({display.Position.X},{display.Position.Y})"
+                    Logging.logNormalf "  Display %s: %dx%d at (%d,%d)" display.Id display.Resolution.Width display.Resolution.Height display.Position.X display.Position.Y
                 Ok ()
             with
             | ex -> Error $"Failed to apply configuration: {ex.Message}"

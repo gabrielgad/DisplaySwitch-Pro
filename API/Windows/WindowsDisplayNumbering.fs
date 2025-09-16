@@ -34,7 +34,7 @@ module WindowsDisplayNumbering =
                 "Unknown"
         with
         | ex ->
-            printfn "[ERROR] Failed to extract EDID from %s: %s" devicePath ex.Message
+            Logging.logErrorf " Failed to extract EDID from %s: %s" devicePath ex.Message
             "Unknown"
 
     // Get WMI display data directly
@@ -101,7 +101,7 @@ module WindowsDisplayNumbering =
                                                 MonitorIndex = monitorIndex
                                         }
                                         correlatedDisplays <- correlatedDisplay :: correlatedDisplays
-                                        printfn "[DEBUG] Correlated UID %u (%s) -> %s (EDID: %s, Monitor: %u)" uid wmiDisplay.FriendlyName adapter.DeviceName edidId monitorIndex
+                                        Logging.logVerbosef " Correlated UID %u (%s) -> %s (EDID: %s, Monitor: %u)" uid wmiDisplay.FriendlyName adapter.DeviceName edidId monitorIndex
                                     | None ->
                                         printfn "[WARNING] Found UID %u in API but not in WMI data" uid
 
@@ -123,7 +123,7 @@ module WindowsDisplayNumbering =
 
         with
         | ex ->
-            printfn "[ERROR] API correlation failed: %s" ex.Message
+            Logging.logErrorf " API correlation failed: %s" ex.Message
             []
 
     // Apply hardware introduction order algorithm (sort by UID and assign Windows Display numbers)
@@ -151,30 +151,30 @@ module WindowsDisplayNumbering =
     // Main function to get Windows Display Settings numbering
     let getWindowsDisplayNumbering() : HardwareDisplayMapping list =
         try
-            printfn "[INFO] Building Windows Display Settings numbering using hardware introduction order algorithm..."
+            Logging.logVerbose "Building Windows Display Settings numbering using hardware introduction order algorithm..."
 
             // Step 1: Get WMI display data
             let wmiDisplays = getWMIDisplayData()
-            printfn "[DEBUG] Found %d WMI displays" wmiDisplays.Length
+            Logging.logVerbosef " Found %d WMI displays" wmiDisplays.Length
 
             if wmiDisplays.IsEmpty then
-                printfn "[ERROR] No WMI display data available"
+                Logging.logErrorf " No WMI display data available"
                 []
             else
                 // Step 2: Correlate with Windows API enumeration
                 let correlatedDisplays = correlateWithAPI wmiDisplays
-                printfn "[DEBUG] Successfully correlated %d displays" correlatedDisplays.Length
+                Logging.logVerbosef " Successfully correlated %d displays" correlatedDisplays.Length
 
                 if correlatedDisplays.IsEmpty then
-                    printfn "[ERROR] No displays successfully correlated"
+                    Logging.logErrorf " No displays successfully correlated"
                     []
                 else
                     // Step 3: Apply hardware introduction order algorithm
                     let numberedDisplays = applyHardwareIntroductionOrderAlgorithm correlatedDisplays
 
-                    printfn "[INFO] Windows Display numbering results:"
+                    Logging.logVerbose "Windows Display numbering results:"
                     for display in numberedDisplays do
-                        printfn "  Windows Display %d: %s (UID: %u, API: %s, EDID: %s)"
+                        Logging.logVerbosef "  Windows Display %d: %s (UID: %u, API: %s, EDID: %s)"
                             display.WindowsDisplayNumber
                             display.FriendlyName
                             display.UID
@@ -185,7 +185,7 @@ module WindowsDisplayNumbering =
 
         with
         | ex ->
-            printfn "[ERROR] Windows display numbering failed: %s" ex.Message
+            Logging.logErrorf " Windows display numbering failed: %s" ex.Message
             []
 
     // Helper function to find API device name for a specific Windows Display number

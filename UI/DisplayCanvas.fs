@@ -210,7 +210,7 @@ module DisplayCanvas =
             let validatedY = Math.Max(-32768, Math.Min(32767, windowsY))
             
             if validatedX <> windowsX || validatedY <> windowsY then
-                printfn "[DEBUG] Position clamped from (%d, %d) to (%d, %d) for display %s" 
+                Logging.logVerbosef " Position clamped from (%d, %d) to (%d, %d) for display %s" 
                     windowsX windowsY validatedX validatedY displayId
             
             let display = displays |> List.find (fun d -> d.Id = displayId)
@@ -219,7 +219,7 @@ module DisplayCanvas =
         
         // Handle drag completion (with compacting)
         let onDragComplete displayId (x, y) =
-            printfn "[DEBUG] Drag completed for %s at canvas position (%.1f, %.1f)" displayId x y
+            Logging.logVerbosef " Drag completed for %s at canvas position (%.1f, %.1f)" displayId x y
             
             // Get coordinate transformation parameters from canvas tag
             let (centerX, centerY, scale) = 

@@ -40,10 +40,10 @@ module DisplayStateCache =
                 displayStateCache := 
                     states 
                     |> Array.fold (fun acc state -> Map.add state.DisplayId state acc) Map.empty
-                printfn "[DEBUG] Loaded %d display states from cache" states.Length
+                Logging.logVerbosef "Loaded %d display states from cache" states.Length
         with
         | ex -> 
-            printfn "[DEBUG] Failed to load display states: %s" ex.Message
+            Logging.logVerbosef "Failed to load display states: %s" ex.Message
     
     // Save display states to file
     let private saveDisplayStates() =
@@ -53,10 +53,10 @@ module DisplayStateCache =
             let options = JsonSerializerOptions(WriteIndented = true)
             let json = JsonSerializer.Serialize(states, options)
             File.WriteAllText(filePath, json)
-            printfn "[DEBUG] Saved %d display states to cache" states.Length
+            Logging.logVerbosef "Saved %d display states to cache" states.Length
         with
         | ex -> 
-            printfn "[DEBUG] Failed to save display states: %s" ex.Message
+            Logging.logVerbosef "Failed to save display states: %s" ex.Message
     
     // Convert DisplayOrientation to Windows API orientation value
     let orientationToWindows (orientation: DisplayOrientation) =
@@ -126,16 +126,16 @@ module DisplayStateCache =
                 displayStateCache := Map.add displayId state (!displayStateCache)
                 saveDisplayStates() // Persist to file
                 
-                printfn "[DEBUG] Saved display state for %s: %dx%d @ %dHz at (%d, %d)" 
-                        displayId state.Resolution.Width state.Resolution.Height 
+                Logging.logVerbosef "Saved display state for %s: %dx%d @ %dHz at (%d, %d)"
+                        displayId state.Resolution.Width state.Resolution.Height
                         state.Resolution.RefreshRate state.Position.X state.Position.Y
                 true
             else
-                printfn "[DEBUG] Failed to get current settings for %s" displayId
+                Logging.logVerbosef "Failed to get current settings for %s" displayId
                 false
         with
         | ex ->
-            printfn "[DEBUG] Error saving display state: %s" ex.Message
+            Logging.logVerbosef "Error saving display state: %s" ex.Message
             false
     
     // Get saved display state from cache

@@ -24,7 +24,7 @@ module MainContentPanel =
     let private refreshMainWindowContent() =
         match refreshMainWindowContentRef with
         | Some refreshFunc -> refreshFunc()
-        | None -> printfn "[WARNING] Refresh function not set"
+        | None -> Logging.logErrorf "WARNING: Refresh function not set"
     
     // Create preset save dialog
     let private createPresetSaveDialog (colors: Theme.ThemeColors) currentAppState =
@@ -63,11 +63,11 @@ module MainContentPanel =
                 let name = textBox.Text.Trim()
                 if not (String.IsNullOrEmpty(name)) then
                     // Capture CURRENT Windows display state, not UI state
-                    printfn "[DEBUG] Saving preset '%s' - capturing current Windows configuration..." name
+                    Logging.logVerbosef " Saving preset '%s' - capturing current Windows configuration..." name
                     let currentWindowsConfig = PresetManager.getCurrentConfiguration()
                     let namedConfig = { currentWindowsConfig with Name = name; CreatedAt = DateTime.Now }
                     
-                    printfn "[DEBUG] Captured configuration with %d displays, hash: %s" 
+                    Logging.logVerbosef " Captured configuration with %d displays, hash: %s" 
                         namedConfig.Displays.Length (namedConfig.ConfigurationHash |> Option.defaultValue "None")
                     
                     let updatedAppState = AppState.savePreset name namedConfig currentAppState
@@ -76,11 +76,11 @@ module MainContentPanel =
                     // Save to disk
                     match PresetManager.savePresetsToDisk updatedAppState.SavedPresets with
                     | Ok () -> 
-                        printfn "Preset saved successfully: %s" name
+                        Logging.logNormalf "Preset saved successfully: %s" name
                         dialog.Close()
                         refreshMainWindowContent ()
                     | Error err -> 
-                        printfn "Failed to save preset to disk: %s" err
+                        Logging.logErrorf "Failed to save preset to disk: %s" err
         )
         
         panel.Children.Add(textBox)
@@ -100,11 +100,11 @@ module MainContentPanel =
             let name = textBox.Text.Trim()
             if not (String.IsNullOrEmpty(name)) then
                 // Capture CURRENT Windows display state, not UI state
-                printfn "[DEBUG] Saving preset '%s' - capturing current Windows configuration..." name
+                Logging.logVerbosef " Saving preset '%s' - capturing current Windows configuration..." name
                 let currentWindowsConfig = PresetManager.getCurrentConfiguration()
                 let namedConfig = { currentWindowsConfig with Name = name; CreatedAt = DateTime.Now }
                 
-                printfn "[DEBUG] Captured configuration with %d displays, hash: %s" 
+                Logging.logVerbosef " Captured configuration with %d displays, hash: %s" 
                     namedConfig.Displays.Length (namedConfig.ConfigurationHash |> Option.defaultValue "None")
                 
                 let updatedAppState = AppState.savePreset name namedConfig currentAppState
@@ -113,11 +113,11 @@ module MainContentPanel =
                 // Save to disk
                 match PresetManager.savePresetsToDisk updatedAppState.SavedPresets with
                 | Ok () -> 
-                    printfn "Preset saved successfully: %s" name
+                    Logging.logNormalf "Preset saved successfully: %s" name
                     dialog.Close()
                     refreshMainWindowContent ()
                 | Error err -> 
-                    printfn "Failed to save preset to disk: %s" err
+                    Logging.logErrorf "Failed to save preset to disk: %s" err
         )
         buttonPanel.Children.Add(saveButton)
         
@@ -148,9 +148,9 @@ module MainContentPanel =
         let displays = appState.ConnectedDisplays |> Map.values |> List.ofSeq
         let presets = AppState.listPresets appState
         
-        printfn "DEBUG: Creating content with displays:"
+        Logging.logVerbose "Creating content with displays:"
         displays |> List.iter (fun display ->
-            printfn "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled)
+            Logging.logVerbosef "  - %s at (%d, %d) enabled: %b" display.Name display.Position.X display.Position.Y display.IsEnabled)
         
         // Update display position during drag (no compacting)
         let onDisplayPositionUpdate displayId (updatedDisplay: DisplayInfo) =
@@ -170,20 +170,20 @@ module MainContentPanel =
             let updatedAppState = AppState.addDisplay updatedDisplay currentAppState
             
             let allDisplays = updatedAppState.ConnectedDisplays |> Map.values |> List.ofSeq
-            printfn "Display %s drag completed at (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
+            Logging.logVerbosef "Display %s drag completed at (%d, %d)" displayId updatedDisplay.Position.X updatedDisplay.Position.Y
             
             // Apply compacting to show final positions
             let enabledDisplays = allDisplays |> List.filter (fun d -> d.IsEnabled)
             if enabledDisplays.Length > 1 then
-                printfn "[DEBUG] Applying compacting after drag completion"
+                Logging.logVerbosef " Applying compacting after drag completion"
                 
                 // Only compact if there are multiple displays to arrange
                 let displayPositions = enabledDisplays |> List.map (fun d -> (d.Id, d.Position, d))
                 let compactedPositions = DisplayControl.compactDisplayPositions displayPositions
                 
-                printfn "[DEBUG] Compacted positions after drag completion:"
+                Logging.logVerbosef " Compacted positions after drag completion:"
                 compactedPositions |> List.iter (fun (id, newPos, _) ->
-                    printfn "[DEBUG]   %s: (%d, %d)" id newPos.X newPos.Y)
+                    Logging.logVerbosef "   %s: (%d, %d)" id newPos.X newPos.Y)
                 
                 // Update displays with compacted positions
                 let compactedDisplays = 
@@ -220,17 +220,17 @@ module MainContentPanel =
                 dialog.ShowDialog(UIState.getMainWindow() |> Option.defaultValue null) |> ignore
             else
                 // Load existing preset
-                printfn "Loading preset: %s" presetName
+                Logging.logNormalf "Loading preset: %s" presetName
                 
                 match AppState.getPreset presetName (!currentAppStateRef) with
                 | Some preset ->
                     // Validate preset can be applied
                     match PresetManager.validatePreset preset with
                     | Ok () ->
-                        printfn "Applying preset: %s" preset.Name
+                        Logging.logNormalf "Applying preset: %s" preset.Name
                         match PresetManager.applyPreset preset with
                         | Ok () -> 
-                            printfn "Successfully applied preset %s" preset.Name
+                            Logging.logNormalf "Successfully applied preset %s" preset.Name
                             
                             // Get actual current Windows display state after preset application
                             let actualCurrentConfig = PresetManager.getCurrentConfiguration()
@@ -243,13 +243,13 @@ module MainContentPanel =
                             refreshMainWindowContent ()
                             
                         | Error err -> 
-                            printfn "Failed to apply preset %s: %s" preset.Name err
+                            Logging.logErrorf "Failed to apply preset %s: %s" preset.Name err
                             
                     | Error err ->
-                        printfn "Cannot apply preset %s: %s" preset.Name err
+                        Logging.logErrorf "Cannot apply preset %s: %s" preset.Name err
                             
                 | None ->
-                    printfn "Preset %s not found!" presetName
+                    Logging.logErrorf "Preset %s not found!" presetName
 
         // Create the display canvas
         let displayCanvas = DisplayCanvas.createDisplayCanvas displays onDisplayPositionUpdate onDisplayDragComplete
@@ -259,7 +259,7 @@ module MainContentPanel =
         
         // Display toggle handler - now functional
         let onDisplayToggle (displayId: DisplayId) (enabled: bool) =
-            printfn "Toggle display %s to %b" displayId enabled
+            Logging.logVerbosef "Toggle display %s to %b" displayId enabled
             let currentAppState = !currentAppStateRef
             match Map.tryFind displayId (!currentAppStateRef).ConnectedDisplays with
             | Some display ->
@@ -271,18 +271,18 @@ module MainContentPanel =
                 // Apply to physical display
                 match WindowsDisplaySystem.setDisplayEnabled displayId enabled with
                 | Ok () -> 
-                    printfn "Successfully toggled display %s" displayId
+                    Logging.logNormalf "Successfully toggled display %s" displayId
                     refreshMainWindowContent ()
                 | Error err -> 
-                    printfn "Failed to toggle display %s: %s" displayId err
+                    Logging.logErrorf "Failed to toggle display %s: %s" displayId err
             | None -> 
-                printfn "Display %s not found" displayId
+                Logging.logErrorf "Display %s not found" displayId
 
         // Display settings handler
         let onSettingsClick (display: DisplayInfo) =
-            printfn "Opening settings for display: %s" display.Name
+            Logging.logVerbosef "Opening settings for display: %s" display.Name
             let onApply = fun displayId mode orientation isPrimary ->
-                printfn "Applying settings: %dx%d@%dHz, orientation: %A, primary: %b" 
+                Logging.logVerbosef "Applying settings: %dx%d@%dHz, orientation: %A, primary: %b" 
                         mode.Width mode.Height mode.RefreshRate orientation isPrimary
                 
                 // Apply the settings
@@ -290,8 +290,8 @@ module MainContentPanel =
                 | Ok () ->
                     if isPrimary then
                         match WindowsDisplaySystem.setPrimaryDisplay displayId with
-                        | Ok () -> printfn "Successfully set as primary"
-                        | Error err -> printfn "Failed to set as primary: %s" err
+                        | Ok () -> Logging.logNormal "Successfully set as primary"
+                        | Error err -> Logging.logErrorf "Failed to set as primary: %s" err
                     
                     // Update the display info and refresh UI
                     match Map.tryFind displayId (!currentAppStateRef).ConnectedDisplays with
@@ -308,7 +308,7 @@ module MainContentPanel =
                         refreshMainWindowContent ()
                     | None -> ()
                 | Error err ->
-                    printfn "Failed to apply display mode: %s" err
+                    Logging.logErrorf "Failed to apply display mode: %s" err
             
             let onClose = fun () -> ()
             let dialog = UIComponents.createResolutionPickerDialog display onApply onClose
@@ -322,7 +322,7 @@ module MainContentPanel =
         
         // Create preset panel with delete handler
         let onPresetDelete (presetName: string) = 
-            printfn "Deleting preset: %s" presetName
+            Logging.logNormalf "Deleting preset: %s" presetName
             let currentAppState = !currentAppStateRef
             match PresetManager.deletePreset presetName currentAppState.SavedPresets with
             | Ok updatedPresets ->
@@ -330,10 +330,10 @@ module MainContentPanel =
                 let finalAppState = { updatedAppState with SavedPresets = updatedPresets }
                 currentAppStateRef := finalAppState
                 UIState.updateAppState finalAppState
-                printfn "Successfully deleted preset: %s" presetName
+                Logging.logNormalf "Successfully deleted preset: %s" presetName
                 refreshMainWindowContent()
             | Error err ->
-                printfn "Failed to delete preset %s: %s" presetName err
+                Logging.logErrorf "Failed to delete preset %s: %s" presetName err
         let presetPanel = UIComponents.createPresetPanel presets onPresetClick onPresetDelete
         
         // Split the UI: 3 columns - display info (left), display canvas (center), presets (right)
@@ -438,7 +438,7 @@ module MainContentPanel =
         
         // Apply button click handler
         applyPositionButton.PointerPressed.Add(fun _ ->
-            printfn "Applying display position changes to Windows..."
+            Logging.logNormal "Applying display position changes to Windows..."
             
             // Get current display positions from canvas
             let currentDisplays = (!currentAppStateRef).ConnectedDisplays |> Map.values |> List.ofSeq
@@ -448,7 +448,7 @@ module MainContentPanel =
             if not displayPositions.IsEmpty then
                 match DisplayControl.applyMultipleDisplayPositions displayPositions with
                 | Ok () -> 
-                    printfn "Successfully applied all position changes"
+                    Logging.logNormal "Successfully applied all position changes"
                     applyButtonText.Text <- "✓ Applied"
                     applyPositionButton.Background <- SolidColorBrush(colors.Success) :> IBrush
                     
@@ -462,7 +462,7 @@ module MainContentPanel =
                     ()
                     
                 | Error err -> 
-                    printfn "Failed to apply position changes: %s" err
+                    Logging.logErrorf "Failed to apply position changes: %s" err
                     applyButtonText.Text <- "✗ Failed"
                     applyPositionButton.Background <- SolidColorBrush(colors.Error) :> IBrush
                     
@@ -475,7 +475,7 @@ module MainContentPanel =
                     ), null, 3000, System.Threading.Timeout.Infinite) // Preset apply feedback timer
                     ()
             else
-                printfn "No enabled displays to apply positions for"
+                Logging.logNormal "No enabled displays to apply positions for"
         )
         
         centerContent.Children.Add(applyPositionButton)

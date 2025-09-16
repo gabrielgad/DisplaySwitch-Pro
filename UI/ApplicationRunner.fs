@@ -29,10 +29,10 @@ module ApplicationRunner =
                     let window = GUI.createMainWindow state adapter
                     desktop.MainWindow <- window
                     window.Show()
-                    printfn "Window created and shown"
+                    Logging.logVerbose "Window created and shown"
                 | _ -> failwith "Application data not set"
             | _ -> 
-                printfn "No desktop lifetime found"
+                Logging.logError "No desktop lifetime found"
             
             base.OnFrameworkInitializationCompleted()
 
@@ -40,17 +40,17 @@ module ApplicationRunner =
     let run (adapter: IPlatformAdapter) (state: AppState) =
         let appDataRef = ref { State = Some state; Adapter = Some adapter }
         try
-            printfn "Starting Avalonia application..."
+            Logging.logNormal "Starting Avalonia application..."
             let result = 
                 AppBuilder
                     .Configure<App>(fun () -> App(appDataRef))
                     .UsePlatformDetect()
                     .LogToTrace()
                     .StartWithClassicDesktopLifetime([||])
-            printfn "Avalonia application finished with exit code: %d" result
+            Logging.logNormalf "Avalonia application finished with exit code: %d" result
             result
         with
         | ex -> 
-            printfn "Error starting Avalonia: %s" ex.Message
-            printfn "Stack trace: %s" ex.StackTrace
+            Logging.logErrorf "Error starting Avalonia: %s" ex.Message
+            Logging.logErrorf "Stack trace: %s" ex.StackTrace
             1

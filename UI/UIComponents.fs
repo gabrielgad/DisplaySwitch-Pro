@@ -22,7 +22,7 @@ module UIComponents =
     let private refreshMainWindowContent() =
         match refreshMainWindowContentRef with
         | Some refreshFunc -> refreshFunc()
-        | None -> printfn "[WARNING] UIComponents refresh function not set"
+        | None -> Logging.logErrorf "WARNING: UIComponents refresh function not set"
     
     type VisualDisplay = {
         Display: DisplayInfo
@@ -565,12 +565,12 @@ module UIComponents =
             if not selectedIsPrimary then
                 selectedIsPrimary <- true
                 
-                printfn "[DEBUG UIComponents] Setting %s as primary display immediately" display.Id
+                Logging.logVerbosef "UIComponents: Setting %s as primary display immediately" display.Id
                 
                 // Call the Windows API to actually set as primary
                 match DisplayControl.setPrimaryDisplay display.Id with
                 | Ok () ->
-                    printfn "[SUCCESS] Successfully set %s as primary display" display.Id
+                    Logging.logNormalf "SUCCESS: Successfully set %s as primary display" display.Id
                     
                     // Update UI state
                     primaryToggle.Background <- SolidColorBrush(colors.Secondary)
@@ -578,20 +578,20 @@ module UIComponents =
                     primaryText.Foreground <- SolidColorBrush(Colors.White)
                     
                     // Refresh the UI to reflect the primary display change
-                    printfn "[INFO] Primary display set successfully. Refreshing UI to show changes."
+                    Logging.logNormalf " Primary display set successfully. Refreshing UI to show changes."
                     
                     // Call the refresh function to reload display state from Windows and update UI
                     refreshMainWindowContent()
                     
                 | Error err ->
-                    printfn "[ERROR] Failed to set %s as primary: %s" display.Id err
+                    Logging.logErrorf " Failed to set %s as primary: %s" display.Id err
                     // Revert UI state on failure
                     selectedIsPrimary <- false
                     primaryToggle.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
                     primaryText.Text <- "Set as Primary"
                     primaryText.Foreground <- SolidColorBrush(colors.Text)
             else
-                printfn "[DEBUG UIComponents] %s is already primary - no action needed" display.Id
+                Logging.logVerbosef "UIComponents: %s is already primary - no action needed" display.Id
         )
         
         primarySection.Children.Add(primaryToggle)
@@ -626,13 +626,13 @@ module UIComponents =
         
         let updateButtonStates () =
             let isSelectionMade = selectedResolution.IsSome && selectedRefreshRate.IsSome
-            printfn "[DEBUG UIComponents] updateButtonStates called - Resolution: %A, RefreshRate: %A, SelectionMade: %b" 
+            Logging.logVerbosef "UIComponents: updateButtonStates called - Resolution: %A, RefreshRate: %A, SelectionMade: %b" 
                     selectedResolution selectedRefreshRate isSelectionMade
             
             match testButton, applyButton, testText, applyText with
             | Some tb, Some ab, Some tt, Some at ->
                 if isSelectionMade then
-                    printfn "[DEBUG UIComponents] Enabling Apply and Test buttons"
+                    Logging.logVerbosef "UIComponents: Enabling Apply and Test buttons"
                     tb.IsEnabled <- true
                     tb.Opacity <- 1.0
                     tb.Background <- SolidColorBrush(colors.Secondary)
@@ -643,7 +643,7 @@ module UIComponents =
                     ab.Background <- SolidColorBrush(colors.Primary)
                     at.Foreground <- SolidColorBrush(Colors.White)
                 else
-                    printfn "[DEBUG UIComponents] Disabling Apply and Test buttons"
+                    Logging.logVerbosef "UIComponents: Disabling Apply and Test buttons"
                     tb.IsEnabled <- false
                     tb.Opacity <- 0.5
                     tb.Background <- SolidColorBrush(Color.FromArgb(50uy, colors.Secondary.R, colors.Secondary.G, colors.Secondary.B))
@@ -747,11 +747,11 @@ module UIComponents =
                 if isCurrentResolution && selectedResolution.IsNone then
                     selectedResolution <- Some (width, height)
                     updateButtonStates()
-                    printfn "[DEBUG UIComponents] Initial resolution selection set to current: %dx%d" width height
+                    Logging.logVerbosef "UIComponents: Initial resolution selection set to current: %dx%d" width height
                 
                 // Handle mouse click on the border
                 resolutionButton.PointerPressed.Add(fun _ ->
-                    printfn "[DEBUG UIComponents] Resolution selected: %dx%d" width height
+                    Logging.logVerbosef "UIComponents: Resolution selected: %dx%d" width height
                     // Update selection
                     let previousResolution = selectedResolution
                     selectedResolution <- Some (width, height)
@@ -759,11 +759,11 @@ module UIComponents =
                     // Only clear refresh rate if we're selecting a different resolution
                     if previousResolution <> Some (width, height) then
                         selectedRefreshRate <- None
-                        printfn "[DEBUG UIComponents] Different resolution selected - will auto-select refresh rate"
+                        Logging.logVerbosef "UIComponents: Different resolution selected - will auto-select refresh rate"
                     else
-                        printfn "[DEBUG UIComponents] Same resolution re-selected - keeping refresh rate: %A" selectedRefreshRate
+                        Logging.logVerbosef "UIComponents: Same resolution re-selected - keeping refresh rate: %A" selectedRefreshRate
                     
-                    printfn "[DEBUG UIComponents] selectedResolution set to: %A" selectedResolution
+                    Logging.logVerbosef "UIComponents: selectedResolution set to: %A" selectedResolution
                     
                     // Reset ALL resolution button styles to normal (user has made a selection)
                     for child in resolutionList.Children do
@@ -779,12 +779,12 @@ module UIComponents =
                     resolutionButton.Background <- SolidColorBrush(colors.Primary)
                     resolutionText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
                     
-                    printfn "[DEBUG UIComponents] Highlighting selected resolution button: %dx%d" width height
+                    Logging.logVerbosef "UIComponents: Highlighting selected resolution button: %dx%d" width height
                     updateButtonStates()
                     
                     // Update refresh rate panel
-                    printfn "[DEBUG UIComponents] Updating refresh rate panel for resolution %dx%d" width height
-                    printfn "[DEBUG UIComponents] Refresh rates available for this resolution: %A" refreshRates
+                    Logging.logVerbosef "UIComponents: Updating refresh rate panel for resolution %dx%d" width height
+                    Logging.logVerbosef "UIComponents: Refresh rates available for this resolution: %A" refreshRates
                     match refreshRatePanel with
                     | Some panel -> 
                         panel.Children.Clear()
@@ -808,7 +808,7 @@ module UIComponents =
                         
                         // Sort refresh rates from highest to lowest
                         let sortedRefreshRates = refreshRates |> List.sortByDescending id
-                        printfn "[DEBUG UIComponents] Available refresh rates for %dx%d: %A" width height sortedRefreshRates
+                        Logging.logVerbosef "UIComponents: Available refresh rates for %dx%d: %A" width height sortedRefreshRates
                         
                         for refreshRate in sortedRefreshRates do
                             // Use Border with TextBlock instead of Button to avoid default hover styling
@@ -863,21 +863,21 @@ module UIComponents =
                             let shouldAutoSelect = 
                                 match selectedResolution with
                                 | Some (selWidth, selHeight) when selWidth = width && selHeight = height ->
-                                    printfn "[DEBUG UIComponents] Checking auto-selection for %dx%d, current refresh rate: %d" width height refreshRate
-                                    printfn "[DEBUG UIComponents] Current display mode: %dx%d @ %dHz" caps.CurrentMode.Width caps.CurrentMode.Height caps.CurrentMode.RefreshRate
-                                    printfn "[DEBUG UIComponents] Available rates for this resolution: %A" sortedRefreshRates
+                                    Logging.logVerbosef "UIComponents: Checking auto-selection for %dx%d, current refresh rate: %d" width height refreshRate
+                                    Logging.logVerbosef "UIComponents: Current display mode: %dx%d @ %dHz" caps.CurrentMode.Width caps.CurrentMode.Height caps.CurrentMode.RefreshRate
+                                    Logging.logVerbosef "UIComponents: Available rates for this resolution: %A" sortedRefreshRates
                                     
                                     // This is the selected resolution - determine which refresh rate to auto-select
                                     if width = caps.CurrentMode.Width && height = caps.CurrentMode.Height then
                                         // For current resolution, select the current refresh rate
                                         let shouldSelect = refreshRate = caps.CurrentMode.RefreshRate
-                                        printfn "[DEBUG UIComponents] Current resolution - should select %dHz: %b" refreshRate shouldSelect
+                                        Logging.logVerbosef "UIComponents: Current resolution - should select %dHz: %b" refreshRate shouldSelect
                                         shouldSelect
                                     else
                                         // For other resolutions, select the highest refresh rate available for THIS resolution
                                         let highestRate = sortedRefreshRates |> List.head
                                         let shouldSelect = refreshRate = highestRate
-                                        printfn "[DEBUG UIComponents] Other resolution - highest available: %dHz, should select %dHz: %b" highestRate refreshRate shouldSelect
+                                        Logging.logVerbosef "UIComponents: Other resolution - highest available: %dHz, should select %dHz: %b" highestRate refreshRate shouldSelect
                                         shouldSelect
                                 | _ -> 
                                     false // Don't auto-select for non-selected resolutions
@@ -887,14 +887,14 @@ module UIComponents =
                                 refreshButton.Background <- SolidColorBrush(colors.Secondary)
                                 refreshText.Foreground <- SolidColorBrush(colors.Surface) // Use surface color for contrast
                                 selectedRefreshRate <- Some refreshRate
-                                printfn "[DEBUG UIComponents] Auto-selected refresh rate: %dHz for resolution %dx%d" refreshRate width height
+                                Logging.logVerbosef "UIComponents: Auto-selected refresh rate: %dHz for resolution %dx%d" refreshRate width height
                                 updateButtonStates()
                             
                             // Handle mouse click on the border
                             refreshButton.PointerPressed.Add(fun _ ->
-                                printfn "[DEBUG UIComponents] Refresh rate selected: %dHz" refreshRate
+                                Logging.logVerbosef "UIComponents: Refresh rate selected: %dHz" refreshRate
                                 selectedRefreshRate <- Some refreshRate
-                                printfn "[DEBUG UIComponents] selectedRefreshRate set to: %A" selectedRefreshRate
+                                Logging.logVerbosef "UIComponents: selectedRefreshRate set to: %A" selectedRefreshRate
                                 
                                 // Reset all refresh rate button styles
                                 for child in refreshList.Children do
@@ -943,9 +943,9 @@ module UIComponents =
                         if textBlock.Text = expectedText then
                             border.Background <- SolidColorBrush(colors.Primary)
                             textBlock.Foreground <- SolidColorBrush(colors.Surface)
-                            printfn "[DEBUG UIComponents] Applied initial highlighting to resolution: %dx%d" selWidth selHeight
+                            Logging.logVerbosef "UIComponents: Applied initial highlighting to resolution: %dx%d" selWidth selHeight
         | None -> 
-            printfn "[DEBUG UIComponents] No initial resolution to highlight"
+            Logging.logVerbosef "UIComponents: No initial resolution to highlight"
         
         resolutionContent.Children.Add(resolutionScrollViewer)
         resolutionPanel.Child <- resolutionContent
@@ -1052,7 +1052,7 @@ module UIComponents =
                 match selectedResolution, selectedRefreshRate with
                 | Some (width, height), Some refreshRate ->
                     let mode = { Width = width; Height = height; RefreshRate = refreshRate; BitsPerPixel = 32 }
-                    printfn "[DEBUG UIComponents] Starting 15-second test of %dx%d @ %dHz" width height refreshRate
+                    Logging.logVerbosef "UIComponents: Starting 15-second test of %dx%d @ %dHz" width height refreshRate
                     
                     // Disable the test button during testing to prevent multiple tests
                     testButtonElement.IsEnabled <- false
@@ -1073,9 +1073,9 @@ module UIComponents =
                             
                             match result with
                             | Ok msg ->
-                                printfn "[DEBUG UIComponents] Test completed successfully: %s" msg
+                                Logging.logVerbosef "UIComponents: Test completed successfully: %s" msg
                             | Error err ->
-                                printfn "[DEBUG UIComponents] Test failed: %s" err
+                                Logging.logVerbosef "UIComponents: Test failed: %s" err
                         )
                     
                     // Execute the test asynchronously
@@ -1084,10 +1084,10 @@ module UIComponents =
         )
         
         applyButtonElement.PointerPressed.Add(fun _ ->
-            printfn "[DEBUG UIComponents] Apply button clicked!"
-            printfn "[DEBUG UIComponents] Button enabled: %b" applyButtonElement.IsEnabled
-            printfn "[DEBUG UIComponents] Selected resolution: %A" selectedResolution
-            printfn "[DEBUG UIComponents] Selected refresh rate: %A" selectedRefreshRate
+            Logging.logVerbosef "UIComponents: Apply button clicked!"
+            Logging.logVerbosef "UIComponents: Button enabled: %b" applyButtonElement.IsEnabled
+            Logging.logVerbosef "UIComponents: Selected resolution: %A" selectedResolution
+            Logging.logVerbosef "UIComponents: Selected refresh rate: %A" selectedRefreshRate
             
             if applyButtonElement.IsEnabled && selectedResolution.IsSome && selectedRefreshRate.IsSome then
                 match selectedResolution, selectedRefreshRate with
@@ -1101,30 +1101,30 @@ module UIComponents =
                             IsPrimary = selectedIsPrimary
                     }
                     
-                    printfn "[DEBUG UIComponents] ===== APPLYING DISPLAY SETTINGS ====="
-                    printfn "[DEBUG UIComponents] Display ID: %s" display.Id
-                    printfn "[DEBUG UIComponents] Resolution: %dx%d @ %dHz" width height refreshRate
-                    printfn "[DEBUG UIComponents] Orientation: %A" selectedOrientation
-                    printfn "[DEBUG UIComponents] Set as Primary: %b" selectedIsPrimary
-                    printfn "[DEBUG UIComponents] Current Primary: %b" display.IsPrimary
-                    printfn "[DEBUG UIComponents] Mode details: { Width=%d; Height=%d; RefreshRate=%d; BitsPerPixel=%d }" 
+                    Logging.logVerbosef "UIComponents: ===== APPLYING DISPLAY SETTINGS ====="
+                    Logging.logVerbosef "UIComponents: Display ID: %s" display.Id
+                    Logging.logVerbosef "UIComponents: Resolution: %dx%d @ %dHz" width height refreshRate
+                    Logging.logVerbosef "UIComponents: Orientation: %A" selectedOrientation
+                    Logging.logVerbosef "UIComponents: Set as Primary: %b" selectedIsPrimary
+                    Logging.logVerbosef "UIComponents: Current Primary: %b" display.IsPrimary
+                    Logging.logVerbosef "UIComponents: Mode details: { Width=%d; Height=%d; RefreshRate=%d; BitsPerPixel=%d }" 
                             mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
                     
-                    printfn "[DEBUG UIComponents] Calling onApply callback..."
+                    Logging.logVerbosef "UIComponents: Calling onApply callback..."
                     onApply display.Id mode selectedOrientation selectedIsPrimary
-                    printfn "[DEBUG UIComponents] onApply callback completed"
+                    Logging.logVerbosef "UIComponents: onApply callback completed"
                     
                     // Update the current mode display to reflect the change
                     currentDisplayMode <- mode
                     updateCurrentModeDisplay()
-                    printfn "[DEBUG UIComponents] Updated current mode display to: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate
+                    Logging.logVerbosef "UIComponents: Updated current mode display to: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate
                     
                     // Don't close the dialog - let user make more changes or close manually
-                    printfn "[DEBUG UIComponents] Keeping dialog open for additional changes"
+                    Logging.logVerbosef "UIComponents: Keeping dialog open for additional changes"
                 | _ -> 
-                    printfn "[DEBUG UIComponents] ERROR: Resolution or refresh rate not properly selected!"
+                    Logging.logVerbosef "UIComponents: ERROR: Resolution or refresh rate not properly selected!"
             else
-                printfn "[DEBUG UIComponents] ERROR: Button not enabled or selections missing!"
+                Logging.logVerbosef "UIComponents: ERROR: Button not enabled or selections missing!"
         )
         
         contentGrid.Children.Add(buttonPanel)

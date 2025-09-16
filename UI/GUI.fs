@@ -16,7 +16,7 @@ module GUI =
             match UIState.getCurrentAdapter() with
             | Some adapter ->
                 // Re-detect displays to get updated information, but preserve application-level disabled states
-                printfn "[DEBUG GUI] Refreshing display information..."
+                Logging.logVerbosef "GUI: Refreshing display information..."
                 let freshDisplays = adapter.GetConnectedDisplays()
                 
                 // Use fresh Windows positions and states - don't preserve old positions
@@ -35,14 +35,14 @@ module GUI =
                 // Recreate the UI with updated display info
                 let content = MainContentPanel.createMainContentPanel (UIState.getCurrentAppState()) adapter
                 window.Content <- content
-                printfn "[DEBUG GUI] UI refreshed with %d displays" preservedDisplays.Length
+                Logging.logVerbosef "GUI: UI refreshed with %d displays" preservedDisplays.Length
             | None -> ()
         | None -> ()
     
     // Handle display change events from the monitor (pure function)
     let private onDisplayChanged (changeEvent: DisplayMonitor.DisplayChangeEvent) =
-        printfn "[DisplayMonitor] Display change detected: %A" changeEvent.ChangeType
-        printfn "[DisplayMonitor] Previous displays: %d, Current displays: %d"
+        Logging.logVerbosef "DisplayMonitor: Display change detected: %A" changeEvent.ChangeType
+        Logging.logVerbosef "DisplayMonitor: Previous displays: %d, Current displays: %d"
             changeEvent.PreviousDisplays.Length changeEvent.CurrentDisplays.Length
 
         // Refresh the UI to reflect display changes
@@ -52,11 +52,11 @@ module GUI =
     let private startDisplayMonitoring() =
         match !monitorStateRef with
         | Some _ ->
-            printfn "[GUI] Display monitoring already active"
+            Logging.logVerbosef "GUI: Display monitoring already active"
         | None ->
             let monitorState = DisplayMonitor.startMonitoring onDisplayChanged 2000
             monitorStateRef := Some monitorState
-            printfn "[GUI] Started display change monitoring"
+            Logging.logVerbosef "GUI: Started display change monitoring"
 
     // Stop display monitoring functionally
     let private stopDisplayMonitoring() =
@@ -64,9 +64,9 @@ module GUI =
         | Some monitorState ->
             DisplayMonitor.stopMonitoring monitorState
             monitorStateRef := None
-            printfn "[GUI] Stopped display monitoring"
+            Logging.logVerbosef "GUI: Stopped display monitoring"
         | None ->
-            printfn "[GUI] No active display monitoring to stop"
+            Logging.logVerbosef "GUI: No active display monitoring to stop"
 
     // Initialize the GUI modules with refresh function references
     let private initializeModules() =

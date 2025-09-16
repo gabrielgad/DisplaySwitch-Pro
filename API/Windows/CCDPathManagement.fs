@@ -40,22 +40,22 @@ module CCDPathManagement =
             let (sizeResult, pathCount, modeCount, flags) = getBufferSizes includeInactive
 
             if sizeResult <> ERROR.ERROR_SUCCESS then
-                printfn "[DEBUG] GetDisplayConfigBufferSizes failed with error: %d" sizeResult
+                Logging.logVerbosef "GetDisplayConfigBufferSizes failed with error: %d" sizeResult
                 Error (sprintf "Failed to get display config buffer sizes: %d" sizeResult)
             else
-                printfn "[DEBUG] Buffer sizes - Paths: %d, Modes: %d" pathCount modeCount
+                Logging.logVerbosef "Buffer sizes - Paths: %d, Modes: %d" pathCount modeCount
                 let (queryResult, pathArray, modeArray, actualPathCount, actualModeCount) =
                     queryDisplayConfiguration flags pathCount modeCount
 
                 if queryResult <> ERROR.ERROR_SUCCESS then
-                    printfn "[DEBUG] QueryDisplayConfig failed with error: %d" queryResult
+                    Logging.logVerbosef "QueryDisplayConfig failed with error: %d" queryResult
                     Error (sprintf "Failed to query display config: %d" queryResult)
                 else
-                    printfn "[DEBUG] Successfully queried %d paths and %d modes" actualPathCount actualModeCount
+                    Logging.logVerbosef "Successfully queried %d paths and %d modes" actualPathCount actualModeCount
                     Ok (pathArray, modeArray, actualPathCount, actualModeCount)
         with
         | ex ->
-            printfn "[DEBUG] Exception in getDisplayPaths: %s" ex.Message
+            Logging.logVerbosef "Exception in getDisplayPaths: %s" ex.Message
             Error (sprintf "Exception getting display paths: %s" ex.Message)
 
     /// Filter paths to only include relevant ones for display configuration
@@ -71,23 +71,23 @@ module CCDPathManagement =
             |> Array.map snd
 
         let filteredCount = Array.length relevantPaths
-        printfn "[DEBUG] Filtered %d paths down to %d relevant paths" pathCount filteredCount
+        Logging.logVerbosef " Filtered %d paths down to %d relevant paths" pathCount filteredCount
 
         // Log only the first 5 and last 2 filtered paths to reduce verbosity
         if Array.length relevantPaths <= 7 then
             relevantPaths |> Array.iteri (fun i path ->
-                printfn "[DEBUG] Path %d: Source %d -> Target %d, Flags: 0x%08X"
+                Logging.logVerbosef " Path %d: Source %d -> Target %d, Flags: 0x%08X"
                         i path.sourceInfo.id path.targetInfo.id path.flags)
         else
             // Log first 3 paths
             relevantPaths.[0..2] |> Array.iteri (fun i path ->
-                printfn "[DEBUG] Path %d: Source %d -> Target %d, Flags: 0x%08X"
+                Logging.logVerbosef " Path %d: Source %d -> Target %d, Flags: 0x%08X"
                         i path.sourceInfo.id path.targetInfo.id path.flags)
-            printfn "[DEBUG] ... (%d paths omitted) ..." (Array.length relevantPaths - 5)
+            Logging.logVerbosef " ... (%d paths omitted) ..." (Array.length relevantPaths - 5)
             // Log last 2 paths
             let len = Array.length relevantPaths
             relevantPaths.[(len-2)..(len-1)] |> Array.iteri (fun i path ->
-                printfn "[DEBUG] Path %d: Source %d -> Target %d, Flags: 0x%08X"
+                Logging.logVerbosef " Path %d: Source %d -> Target %d, Flags: 0x%08X"
                         (len-2+i) path.sourceInfo.id path.targetInfo.id path.flags)
 
         (relevantPaths, uint32 filteredCount)
@@ -111,35 +111,36 @@ module CCDPathManagement =
     /// Helper function to resolve Display ID to Target ID using WMI correlation
     let private resolveTargetIdForDisplay (displayId: string) =
         try
-            // We need to correlate Display3 with UID 176389 to get the correct Target ID
-            // Extract Windows Display Number from displayId (e.g., "Display3" -> 3)
+            // Extract Windows Display Number from displayId (e.g., "Display4" -> 4)
             match parseDisplayNumber displayId with
             | Some windowsDisplayNumber ->
                 // Get WMI data to find the UID for this Windows Display Number
                 let wmiDisplays = WMIHardwareDetection.getWMIDisplayData()
 
-                let expectedSourceId = uint32 (windowsDisplayNumber - 1)
-                let allMappings = getDisplayTargetIdMapping()
+                // Find the WMI display that corresponds to this Windows Display Number
+                // This uses the hardware introduction order algorithm from the research
+                let sortedWMIDisplays =
+                    wmiDisplays
+                    |> List.sortBy (fun d -> d.UID)  // Sort by UID (hardware introduction order)
 
-                let possibleTargets =
-                    allMappings
-                    |> List.filter (fun m -> m.SourceId = expectedSourceId && not m.IsActive)
-                    |> List.map (fun m -> m.TargetId)
-                    |> List.distinct
+                // Map Windows Display Number to UID using introduction order
+                if windowsDisplayNumber > 0 && windowsDisplayNumber <= sortedWMIDisplays.Length then
+                    let targetWMIDisplay = sortedWMIDisplays.[windowsDisplayNumber - 1]
+                    let targetUID = targetWMIDisplay.UID
 
-                match possibleTargets with
-                | targetId :: _ ->
-                    printfn "[DEBUG] Resolved %s -> Source ID %u -> Target ID %u (inactive)" displayId expectedSourceId targetId
-                    Some targetId
-                | [] ->
-                    printfn "[DEBUG] No inactive target found for %s (Source ID %u)" displayId expectedSourceId
+                    Logging.logVerbosef " Resolved %s -> Windows Display %d -> UID %u (from WMI)" displayId windowsDisplayNumber targetUID
+
+                    // The target ID for a display is its UID according to our correlation research
+                    Some targetUID
+                else
+                    Logging.logVerbosef " Windows Display Number %d out of range (have %d WMI displays)" windowsDisplayNumber sortedWMIDisplays.Length
                     None
             | None ->
-                printfn "[DEBUG] Could not parse display number from %s" displayId
+                Logging.logVerbosef " Could not parse display number from %s" displayId
                 None
         with
         | ex ->
-            printfn "[DEBUG] Exception resolving target ID for %s: %s" displayId ex.Message
+            Logging.logVerbosef " Exception resolving target ID for %s: %s" displayId ex.Message
             None
 
     /// Enhanced function to get display paths with validation
@@ -153,7 +154,7 @@ module CCDPathManagement =
             elif pathArray |> Array.exists (fun path -> path.sourceInfo.id <> 0u || path.targetInfo.id <> 0u) |> not then
                 return! Error "Display paths contain no valid source/target IDs"
             else
-                printfn "[DEBUG] Validated %d display paths successfully" pathCount
+                Logging.logVerbosef " Validated %d display paths successfully" pathCount
                 return (pathArray, modeArray, pathCount, modeCount)
         }
 
@@ -165,11 +166,11 @@ module CCDPathManagement =
 
             match displayNumber with
             | Some displayNum ->
-                printfn "[DEBUG] Looking for display %d in %d paths using improved logic" displayNum pathCount
+                Logging.logVerbosef " Looking for display %d in %d paths using improved logic" displayNum pathCount
 
                 // Log only key info when we have many paths (reduced verbosity)
                 if pathCount > 10u then
-                    printfn "[DEBUG] Large path array (%d paths) - searching for Source ID %d" pathCount (displayNum - 1)
+                    Logging.logVerbosef " Large path array (%d paths) - searching for Source ID %d" pathCount (displayNum - 1)
 
                 // Strategy 1: Find path with correct Source ID and Target that matches the display
                 // First try to get Target ID using Windows Display Number mapping (more reliable for inactive displays)
@@ -188,7 +189,7 @@ module CCDPathManagement =
                         | Some ccdTargetId -> ccdTargetId
                         | None -> 0u
 
-                printfn "[DEBUG] Display %s -> Target ID lookup: %s" displayId
+                Logging.logVerbosef " Display %s -> Target ID lookup: %s" displayId
                     (if targetId = 0u then "No mapping found" else sprintf "%u (from %s)" targetId (if targetIdFromWindowsMapping.IsSome then "Windows mapping" else "CCD mapping"))
 
                 let matchingPaths =
@@ -199,7 +200,7 @@ module CCDPathManagement =
                         let targetMatches = targetId = 0u || path.targetInfo.id = targetId
 
                         if sourceIdMatches && targetMatches then
-                            printfn "[DEBUG] Found matching path %d: Source %d -> Target %d for Display %d"
+                            Logging.logVerbosef " Found matching path %d: Source %d -> Target %d for Display %d"
                                     i path.sourceInfo.id path.targetInfo.id displayNum
                             Some (path, i)
                         else
@@ -215,20 +216,20 @@ module CCDPathManagement =
 
                 match matchingPaths with
                 | (path, index) :: _ ->
-                    printfn "[DEBUG] Selected path index %d for display %s (source ID %d)" index displayId path.sourceInfo.id
+                    Logging.logVerbosef " Selected path index %d for display %s (source ID %d)" index displayId path.sourceInfo.id
                     Ok (path, index)
                 | [] ->
-                    printfn "[DEBUG] No source ID match for display %d, trying alternative strategies" displayNum
+                    Logging.logVerbosef " No source ID match for display %d, trying alternative strategies" displayNum
 
                     // Strategy 2: Search all paths for matching target ID when source ID fails
                     if targetId <> 0u then
-                        printfn "[DEBUG] Source ID failed, searching all paths for target ID %u" targetId
+                        Logging.logVerbosef " Source ID failed, searching all paths for target ID %u" targetId
                         let targetMatchingPaths =
                             [0 .. int pathCount - 1]
                             |> List.choose (fun i ->
                                 let path = paths.[i]
                                 if path.targetInfo.id = targetId then
-                                    printfn "[DEBUG] Found target ID match at path %d: Source %d -> Target %d"
+                                    Logging.logVerbosef " Found target ID match at path %d: Source %d -> Target %d"
                                             i path.sourceInfo.id path.targetInfo.id
                                     Some (path, i)
                                 else
@@ -236,15 +237,15 @@ module CCDPathManagement =
 
                         match targetMatchingPaths with
                         | (path, index) :: _ ->
-                            printfn "[DEBUG] Using target ID match at path %d for display %s" index displayId
+                            Logging.logVerbosef " Using target ID match at path %d for display %s" index displayId
                             Ok (path, index)
                         | [] ->
-                            printfn "[DEBUG] No target ID match found, using fallback strategy"
+                            Logging.logVerbosef " No target ID match found, using fallback strategy"
                             // Strategy 3: Use direct mapping as fallback
                             let pathIndex = displayNum - 1 // Convert to 0-based
                             if pathIndex >= 0 && pathIndex < int pathCount then
                                 let path = paths.[pathIndex]
-                                printfn "[DEBUG] Using direct index mapping: path %d for display %s" pathIndex displayId
+                                Logging.logVerbosef " Using direct index mapping: path %d for display %s" pathIndex displayId
                                 Ok (path, pathIndex)
                             else
                                 Error (sprintf "No valid path found for display %s (checked source ID and direct index)" displayId)
@@ -253,7 +254,7 @@ module CCDPathManagement =
                         let pathIndex = displayNum - 1 // Convert to 0-based
                         if pathIndex >= 0 && pathIndex < int pathCount then
                             let path = paths.[pathIndex]
-                            printfn "[DEBUG] Using direct index mapping: path %d for display %s" pathIndex displayId
+                            Logging.logVerbosef " Using direct index mapping: path %d for display %s" pathIndex displayId
                             Ok (path, pathIndex)
                         else
                             Error (sprintf "No valid path found for display %s (checked source ID and direct index)" displayId)
@@ -261,7 +262,7 @@ module CCDPathManagement =
                 Error (sprintf "Could not parse display number from %s" displayId)
         with
         | ex ->
-            printfn "[DEBUG] Exception in improved path finding: %s" ex.Message
+            Logging.logVerbosef " Exception in improved path finding: %s" ex.Message
             Error (sprintf "Exception finding display path: %s" ex.Message)
 
     /// Simplified but robust mapping that works for both enabling and disabling displays
@@ -272,7 +273,7 @@ module CCDPathManagement =
 
             match displayNumber with
             | Some displayNum ->
-                printfn "[DEBUG] Looking for display %d in %d paths" displayNum pathCount
+                Logging.logVerbosef " Looking for display %d in %d paths" displayNum pathCount
 
                 // Get Target ID for more precise matching
                 let targetId = resolveTargetIdForDisplay displayId |> Option.defaultValue 0u
@@ -286,7 +287,7 @@ module CCDPathManagement =
                         let targetMatches = targetId = 0u || path.targetInfo.id = targetId
 
                         if sourceIdMatches && targetMatches then
-                            printfn "[DEBUG] Found path %d with source ID %d and target ID %u matching display %d"
+                            Logging.logVerbosef " Found path %d with source ID %d and target ID %u matching display %d"
                                 i path.sourceInfo.id path.targetInfo.id displayNum
                             Some (path, i)
                         else None)
@@ -300,32 +301,32 @@ module CCDPathManagement =
 
                 match foundPathResult with
                 | Some (path, foundIndex) ->
-                    printfn "[DEBUG] Mapped display %s to path index %d (source ID match)" displayId foundIndex
+                    Logging.logVerbosef " Mapped display %s to path index %d (source ID match)" displayId foundIndex
                     Ok (path, foundIndex)
                 | None ->
                     // Strategy 2: Use display index directly as fallback
                     let pathIndex = displayNum - 1 // Convert to 0-based
                     if pathIndex >= 0 && pathIndex < int pathCount then
                         let path = paths.[pathIndex]
-                        printfn "[DEBUG] Mapped display %s to path index %d (direct index)" displayId pathIndex
+                        Logging.logVerbosef " Mapped display %s to path index %d (direct index)" displayId pathIndex
                         Ok (path, pathIndex)
                     else
                         // Strategy 3: Search through all paths for any that could match
-                        printfn "[DEBUG] Direct index %d out of range, searching all paths..." pathIndex
+                        Logging.logVerbosef " Direct index %d out of range, searching all paths..." pathIndex
                         if int pathCount > 0 then
                             // Just take the path at index (displayNum - 1) mod pathCount to avoid out of bounds
                             let wrappedIndex = (displayNum - 1) % int pathCount
                             let path = paths.[wrappedIndex]
-                            printfn "[DEBUG] Using wrapped index %d for display %s" wrappedIndex displayId
+                            Logging.logVerbosef " Using wrapped index %d for display %s" wrappedIndex displayId
                             Ok (path, wrappedIndex)
                         else
                             Error (sprintf "No paths available for display %s" displayId)
             | None ->
-                printfn "[DEBUG] Could not parse display number from %s" displayId
+                Logging.logVerbosef " Could not parse display number from %s" displayId
                 Error (sprintf "Could not parse display number from %s" displayId)
         with
         | ex ->
-            printfn "[DEBUG] Exception mapping display path: %s" ex.Message
+            Logging.logVerbosef " Exception mapping display path: %s" ex.Message
             Error (sprintf "Exception mapping display path: %s" ex.Message)
 
     /// Find the display path for a specific display ID (using simplified approach)
@@ -335,18 +336,18 @@ module CCDPathManagement =
     /// Find inactive display paths specifically - improved version
     let findInactiveDisplayPath displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
         try
-            printfn "[DEBUG] Finding inactive path for %s in %u total paths" displayId pathCount
+            Logging.logVerbosef " Finding inactive path for %s in %u total paths" displayId pathCount
 
             // First try to find using the improved path finding logic
             match findDisplayPathBySourceId displayId paths pathCount with
             | Ok (path, index) ->
                 let isInactive = path.flags = 0u || path.targetInfo.targetAvailable = 0
                 if isInactive then
-                    printfn "[DEBUG] Found inactive path for %s at index %d (flags: 0x%08X, available: %d)"
+                    Logging.logVerbosef " Found inactive path for %s at index %d (flags: 0x%08X, available: %d)"
                             displayId index path.flags path.targetInfo.targetAvailable
                     Ok (path, index)
                 else
-                    printfn "[DEBUG] Path at index %d for %s is active, will try to activate anyway" index displayId
+                    Logging.logVerbosef " Path at index %d for %s is active, will try to activate anyway" index displayId
                     Ok (path, index)
             | Error _ ->
                 // Fallback to original logic if improved logic fails
@@ -373,10 +374,10 @@ module CCDPathManagement =
 
                     match inactivePaths with
                     | Some (path, index) ->
-                        printfn "[DEBUG] Fallback: Found inactive path for display %s at index %d" displayId index
+                        Logging.logVerbosef " Fallback: Found inactive path for display %s at index %d" displayId index
                         Ok (path, index)
                     | None ->
-                        printfn "[DEBUG] Fallback: No inactive path found for display %s, using generic path finding" displayId
+                        Logging.logVerbosef " Fallback: No inactive path found for display %s, using generic path finding" displayId
                         findDisplayPathByDevice displayId paths pathCount
                 | None ->
                     Error (sprintf "Could not parse display number from %s" displayId)

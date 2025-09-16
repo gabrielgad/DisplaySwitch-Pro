@@ -33,7 +33,7 @@ module WMIHardwareDetection =
                 None
         with
         | ex ->
-            printfn "[ERROR] Failed to extract UID from %s: %s" devicePath ex.Message
+            Logging.logErrorf "Failed to extract UID from %s: %s" devicePath ex.Message
             None
 
     /// Extract target ID from WMI instance name for CCD correlation
@@ -50,7 +50,7 @@ module WMIHardwareDetection =
                 None
         with
         | ex ->
-            printfn "[DEBUG] Error extracting target ID from %s: %s" instanceName ex.Message
+            Logging.logVerbosef "Error extracting target ID from %s: %s" instanceName ex.Message
             None
 
     /// Decode WMI string data (handles both uint16[] and byte[] formats)
@@ -127,18 +127,18 @@ module WMIHardwareDetection =
                         }
 
                         displays.Add(displayInfo)
-                        printfn "[DEBUG] WMI Display: UID %u -> %s (Target: %s)" uid friendlyName
+                        Logging.logVerbosef "WMI Display: UID %u -> %s (Target: %s)" uid friendlyName
                             (match targetId with Some id -> string id | None -> "None")
                     | None ->
-                        printfn "[WARNING] No UID found in WMI instance: %s" instanceName
+                        Logging.logErrorf "WARNING: No UID found in WMI instance: %s" instanceName
 
                 with ex ->
-                    printfn "[ERROR] Failed to process WMI monitor: %s" ex.Message
+                    Logging.logErrorf "Failed to process WMI monitor: %s" ex.Message
 
             displays |> Seq.toList
         with
         | ex ->
-            printfn "[ERROR] WMI display enumeration failed: %s" ex.Message
+            Logging.logErrorf "WMI display enumeration failed: %s" ex.Message
             []
 
     /// Get WMI display information indexed by UID for correlation

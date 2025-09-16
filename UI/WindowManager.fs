@@ -20,7 +20,7 @@ module WindowManager =
     let private refreshMainWindowContent() =
         match refreshMainWindowContentRef with
         | Some refreshFunc -> refreshFunc()
-        | None -> printfn "[WARNING] Refresh function not set"
+        | None -> Logging.logErrorf "WARNING: Refresh function not set"
     
     // Handle keyboard shortcuts for preset switching
     let private setupKeyboardShortcuts (window: Window) =
@@ -41,23 +41,23 @@ module WindowManager =
                     let availablePresets = AppState.listPresets (UIState.getCurrentAppState())
                     if index < availablePresets.Length then
                         let presetName = availablePresets.[index]
-                        printfn "Debug: Keyboard shortcut triggered - loading preset: %s (Ctrl+Shift+%d)" presetName (index + 1)
+                        Logging.logVerbosef " Keyboard shortcut triggered - loading preset: %s (Ctrl+Shift+%d)" presetName (index + 1)
                         
                         // Use the same logic as the preset click handler
                         match AppState.getPreset presetName (UIState.getCurrentAppState()) with
                         | Some config ->
-                            printfn "Debug: Found preset config with %d displays" config.Displays.Length
-                            printfn "Debug: ========== APPLYING PRESET: %s ==========" presetName
+                            Logging.logVerbosef " Found preset config with %d displays" config.Displays.Length
+                            Logging.logVerbosef " ========== APPLYING PRESET: %s ==========" presetName
                             
                             match AppState.loadPreset presetName (UIState.getCurrentAppState()) with
                             | Some updatedAppState -> UIState.updateAppState updatedAppState
-                            | None -> printfn "Debug: Failed to load preset %s" presetName
+                            | None -> Logging.logVerbosef " Failed to load preset %s" presetName
                             
                             // Apply each display's settings to the physical hardware (functional approach)
                             let applyDisplaySettings display =
-                                printfn "Debug: Applying display %s - Position: (%d, %d), Enabled: %b, Primary: %b" 
+                                Logging.logVerbosef " Applying display %s - Position: (%d, %d), Enabled: %b, Primary: %b" 
                                         display.Id display.Position.X display.Position.Y display.IsEnabled display.IsPrimary
-                                printfn "Debug: Resolution: %dx%d @ %dHz, Orientation: %A" 
+                                Logging.logVerbosef " Resolution: %dx%d @ %dHz, Orientation: %A" 
                                         display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate display.Orientation
                                 
                                 // Apply settings to physical display if it's enabled
@@ -69,22 +69,22 @@ module WindowManager =
                                         BitsPerPixel = 32 
                                     }
                                     
-                                    printfn "Debug: Applying physical display mode to %s" display.Id
+                                    Logging.logVerbosef " Applying physical display mode to %s" display.Id
                                     match WindowsDisplaySystem.applyDisplayMode display.Id mode display.Orientation with
                                     | Ok () ->
-                                        printfn "Debug: Successfully applied display mode to %s" display.Id
+                                        Logging.logVerbosef " Successfully applied display mode to %s" display.Id
                                         
                                         // Set as primary if specified
                                         if display.IsPrimary then
-                                            printfn "Debug: Setting %s as primary display" display.Id
+                                            Logging.logVerbosef " Setting %s as primary display" display.Id
                                             match WindowsDisplaySystem.setPrimaryDisplay display.Id with
-                                            | Ok () -> printfn "Debug: Successfully set %s as primary" display.Id
-                                            | Error err -> printfn "Debug: Failed to set %s as primary: %s" display.Id err
+                                            | Ok () -> Logging.logVerbosef " Successfully set %s as primary" display.Id
+                                            | Error err -> Logging.logVerbosef " Failed to set %s as primary: %s" display.Id err
                                             
                                     | Error err ->
-                                        printfn "Debug: Failed to apply display mode to %s: %s" display.Id err
+                                        Logging.logVerbosef " Failed to apply display mode to %s: %s" display.Id err
                                 else
-                                    printfn "Debug: Skipping disabled display %s" display.Id
+                                    Logging.logVerbosef " Skipping disabled display %s" display.Id
                             
                             // Apply settings to all displays
                             config.Displays |> List.iter applyDisplaySettings
@@ -98,16 +98,16 @@ module WindowManager =
                             let finalAppState = AppState.setCurrentConfiguration config updatedAppState
                             UIState.updateAppState finalAppState
                             
-                            printfn "Debug: Preset application completed, refreshing UI"
+                            Logging.logVerbosef " Preset application completed, refreshing UI"
                             refreshMainWindowContent ()
                             
-                            printfn "Debug: Loading preset %s completed successfully via keyboard shortcut" presetName
+                            Logging.logVerbosef " Loading preset %s completed successfully via keyboard shortcut" presetName
                             
                             e.Handled <- true
                         | None ->
-                            printfn "Debug: Preset %s not found!" presetName
+                            Logging.logVerbosef " Preset %s not found!" presetName
                     else
-                        printfn "Debug: No preset assigned to Ctrl+Shift+%d" (index + 1)
+                        Logging.logVerbosef " No preset assigned to Ctrl+Shift+%d" (index + 1)
                 | None -> ()
         )
     

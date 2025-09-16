@@ -94,10 +94,10 @@ module DisplayControl =
         else
             let availableForResolution = allModes |> List.filter (fun m -> m.Width = mode.Width && m.Height = mode.Height)
             if availableForResolution.Length > 0 then
-                printfn "[DEBUG] Available refresh rates for %dx%d:" mode.Width mode.Height
-                availableForResolution |> List.iter (fun m -> printfn "[DEBUG]   - %dHz" m.RefreshRate)
+                Logging.logVerbosef " Available refresh rates for %dx%d:" mode.Width mode.Height
+                availableForResolution |> List.iter (fun m -> Logging.logVerbosef "   - %dHz" m.RefreshRate)
             else
-                printfn "[DEBUG] No modes found for resolution %dx%d" mode.Width mode.Height
+                Logging.logVerbosef " No modes found for resolution %dx%d" mode.Width mode.Height
 
             Error (sprintf "Mode %dx%d @ %dHz is not supported by display %s (API: %s)" mode.Width mode.Height mode.RefreshRate displayId apiDeviceName)
     
@@ -164,31 +164,31 @@ module DisplayControl =
     // Apply display mode changes (resolution, refresh rate, orientation) - now functional
     let applyDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) =
         result {
-            printfn "[DEBUG] ========== Starting applyDisplayMode =========="
-            printfn "[DEBUG] Display ID: %s" displayId
-            printfn "[DEBUG] Target Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate
-            printfn "[DEBUG] Target Orientation: %A" orientation
+            Logging.logVerbosef " ========== Starting applyDisplayMode =========="
+            Logging.logVerbosef " Display ID: %s" displayId
+            Logging.logVerbosef " Target Mode: %dx%d @ %dHz" mode.Width mode.Height mode.RefreshRate
+            Logging.logVerbosef " Target Orientation: %A" orientation
             
             let! currentDevMode = getCurrentDevMode displayId
-            printfn "[DEBUG] Current settings: %ux%u @ %uHz" currentDevMode.dmPelsWidth currentDevMode.dmPelsHeight currentDevMode.dmDisplayFrequency
+            Logging.logVerbosef " Current settings: %ux%u @ %uHz" currentDevMode.dmPelsWidth currentDevMode.dmPelsHeight currentDevMode.dmDisplayFrequency
             
             do! validateModeExists displayId mode
             let! targetDevMode = createTargetDevMode displayId currentDevMode mode orientation
             do! testAndApplyMode displayId targetDevMode
             
-            printfn "[DEBUG] SUCCESS: Display mode applied successfully!"
+            Logging.logVerbosef " SUCCESS: Display mode applied successfully!"
             return ()
         }
 
     // Set display orientation only (preserving current resolution and refresh rate)
     let setDisplayOrientation (displayId: DisplayId) (orientation: DisplayOrientation) =
         result {
-            printfn "[DEBUG] ========== Starting setDisplayOrientation =========="
-            printfn "[DEBUG] Display ID: %s" displayId
-            printfn "[DEBUG] Target Orientation: %A" orientation
+            Logging.logVerbosef " ========== Starting setDisplayOrientation =========="
+            Logging.logVerbosef " Display ID: %s" displayId
+            Logging.logVerbosef " Target Orientation: %A" orientation
             
             let! currentDevMode = getCurrentDevMode displayId
-            printfn "[DEBUG] Current settings: %ux%u @ %uHz" currentDevMode.dmPelsWidth currentDevMode.dmPelsHeight currentDevMode.dmDisplayFrequency
+            Logging.logVerbosef " Current settings: %ux%u @ %uHz" currentDevMode.dmPelsWidth currentDevMode.dmPelsHeight currentDevMode.dmDisplayFrequency
             
             // Create current mode from existing settings
             let currentMode = {
@@ -203,7 +203,7 @@ module DisplayControl =
             let! targetDevMode = createTargetDevMode displayId currentDevMode currentMode orientation
             do! testAndApplyMode displayId targetDevMode
             
-            printfn "[DEBUG] SUCCESS: Display orientation changed to %A!" orientation
+            Logging.logVerbosef " SUCCESS: Display orientation changed to %A!" orientation
             return ()
         }
 
@@ -251,7 +251,7 @@ module DisplayControl =
 
     // Compacting that respects the primary display as the centroid at (0,0)
     let compactDisplayPositions (displayPositions: (DisplayId * Position * DisplayInfo) list) =
-        printfn "[DEBUG] ========== Primary-Centered Compacting =========="
+        Logging.logVerbosef " ========== Primary-Centered Compacting =========="
         
         if List.isEmpty displayPositions then
             []
@@ -287,7 +287,7 @@ module DisplayControl =
                     (pos.X + info.Resolution.Width) > 32767)
             
             if hasInvalidCoords then
-                printfn "[DEBUG] WARNING: Coordinates exceed Windows limits (-32768 to +32767)"
+                Logging.logVerbosef " WARNING: Coordinates exceed Windows limits (-32768 to +32767)"
                 let minX = finalDisplays |> List.map (fun (_, pos, _) -> pos.X) |> List.min
                 let maxXWithWidth = finalDisplays |> List.map (fun (_, pos, info: DisplayInfo) -> pos.X + info.Resolution.Width) |> List.max
                 
@@ -297,7 +297,7 @@ module DisplayControl =
                     else 0
                 
                 if additionalShift <> 0 then
-                    printfn "[DEBUG] Applying additional shift of %d pixels to fit Windows limits" additionalShift
+                    Logging.logVerbosef " Applying additional shift of %d pixels to fit Windows limits" additionalShift
                     finalDisplays |> List.map (fun (id, pos, info) ->
                         (id, { pos with X = pos.X + additionalShift }, info))
                 else
@@ -308,7 +308,7 @@ module DisplayControl =
     // Set display position - applies canvas drag changes to Windows using CCD API
     let setDisplayPosition (displayId: DisplayId) (newPosition: Position) =
         result {
-            printfn "[DEBUG] Setting %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
+            Logging.logVerbosef " Setting %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
             return! DisplayConfigurationAPI.updateDisplayPosition displayId newPosition
         }
         |> Result.mapError (sprintf "Failed to set %s position: %s" displayId)
@@ -316,18 +316,18 @@ module DisplayControl =
     // Apply multiple display positions atomically using CCD API with compacting (with provided display info)
     let applyMultipleDisplayPositionsWithInfo (displayPositionsWithInfo: (DisplayId * Position * DisplayInfo) list) =
         result {
-            printfn "[DEBUG] ========== Applying Multiple Display Positions (CCD API with Preset Info) =========="
-            printfn "[DEBUG] Total displays to reposition: %d" displayPositionsWithInfo.Length
+            Logging.logVerbosef " ========== Applying Multiple Display Positions (CCD API with Preset Info) =========="
+            Logging.logVerbosef " Total displays to reposition: %d" displayPositionsWithInfo.Length
             displayPositionsWithInfo |> List.iteri (fun i (id, pos, info) ->
-                printfn "[DEBUG] Display %d: %s -> (%d, %d), Primary=%b" (i+1) id pos.X pos.Y info.IsPrimary)
+                Logging.logVerbosef " Display %d: %s -> (%d, %d), Primary=%b" (i+1) id pos.X pos.Y info.IsPrimary)
             
             // Compact positions using preset display info (ensures correct primary detection)
             let compactedPositions = compactDisplayPositions displayPositionsWithInfo
             let finalPositions = compactedPositions |> List.map (fun (id, pos, _) -> (id, pos))
             
-            printfn "[DEBUG] Compacted positions:"
+            Logging.logVerbosef " Compacted positions:"
             finalPositions |> List.iteri (fun i (id, pos) ->
-                printfn "[DEBUG] Final %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
+                Logging.logVerbosef " Final %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
             
             // Apply all position changes atomically using CCD API
             return! DisplayConfigurationAPI.applyMultiplePositionChanges finalPositions
@@ -337,10 +337,10 @@ module DisplayControl =
     // Apply multiple display positions atomically using CCD API with compacting (legacy version)
     let applyMultipleDisplayPositions (displayPositions: (DisplayId * Position) list) =
         result {
-            printfn "[DEBUG] ========== Applying Multiple Display Positions (CCD API) =========="
-            printfn "[DEBUG] Total displays to reposition: %d" displayPositions.Length
+            Logging.logVerbosef " ========== Applying Multiple Display Positions (CCD API) =========="
+            Logging.logVerbosef " Total displays to reposition: %d" displayPositions.Length
             displayPositions |> List.iteri (fun i (id, pos) ->
-                printfn "[DEBUG] Display %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
+                Logging.logVerbosef " Display %d: %s -> (%d, %d)" (i+1) id pos.X pos.Y)
             
             // Get display info for all displays to enable compacting
             let connectedDisplays = DisplayDetection.getConnectedDisplays()
@@ -356,7 +356,7 @@ module DisplayControl =
                         printfn "[WARNING] Display %s not found in connected displays" id
                         None)
             
-            printfn "[DEBUG] Found display info for %d of %d displays" displayPositionsWithInfo.Length displayPositions.Length
+            Logging.logVerbosef " Found display info for %d of %d displays" displayPositionsWithInfo.Length displayPositions.Length
             
             // Use the new function with info
             return! applyMultipleDisplayPositionsWithInfo displayPositionsWithInfo
@@ -365,7 +365,7 @@ module DisplayControl =
     // Pure function that ONLY sets the Windows primary display flag
     let setPrimaryDisplayFlag (displayId: DisplayId) =
         result {
-            printfn "[DEBUG] Setting %s as primary display flag only" displayId
+            Logging.logVerbosef " Setting %s as primary display flag only" displayId
 
             let! currentDevMode = getCurrentDevMode displayId
             let mutable updatedDevMode = currentDevMode
@@ -376,7 +376,7 @@ module DisplayControl =
             updatedDevMode.dmFields <- updatedDevMode.dmFields ||| 0x00000020u // DM_POSITION
 
             let apiDeviceName = getAPIDeviceNameForDisplay displayId
-            printfn "[DEBUG] Setting primary flag for %s (API: %s)" displayId apiDeviceName
+            Logging.logVerbosef " Setting primary flag for %s (API: %s)" displayId apiDeviceName
 
             let result = WindowsAPI.ChangeDisplaySettingsEx(
                 apiDeviceName,
@@ -386,10 +386,10 @@ module DisplayControl =
                 IntPtr.Zero
             )
 
-            printfn "[DEBUG] setPrimaryDisplayFlag returned: %d" result
+            Logging.logVerbosef " setPrimaryDisplayFlag returned: %d" result
 
             if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-                printfn "[DEBUG] Primary display flag set successfully for %s" displayId
+                Logging.logVerbosef " Primary display flag set successfully for %s" displayId
                 return ()
             else
                 let errorMessage = getDisplayChangeErrorMessage result
@@ -400,12 +400,12 @@ module DisplayControl =
     // Set display as primary with proper repositioning of all displays using function composition
     let setPrimaryDisplay (displayId: DisplayId) =
         result {
-            printfn "[DEBUG] Setting %s as primary display with repositioning" displayId
+            Logging.logVerbosef " Setting %s as primary display with repositioning" displayId
 
             // Step 1: Get all current displays
             let allDisplays = DisplayDetection.getConnectedDisplays()
             let activeDisplays = allDisplays |> List.filter (fun d -> d.IsEnabled)
-            printfn "[DEBUG] Found %d active displays for repositioning" activeDisplays.Length
+            Logging.logVerbosef " Found %d active displays for repositioning" activeDisplays.Length
 
             // Step 2: Update primary flag in display info and create position list
             let displayPositions =
@@ -415,11 +415,11 @@ module DisplayControl =
                     let updatedInfo = if d.Id = displayId then { d with IsPrimary = true } else { d with IsPrimary = false }
                     (d.Id, d.Position, updatedInfo))
 
-            printfn "[DEBUG] Created display positions list with updated primary flags"
+            Logging.logVerbosef " Created display positions list with updated primary flags"
 
             // Step 3: Use compactDisplayPositions to arrange displays with primary at (0,0)
             let compactedPositions = compactDisplayPositions displayPositions
-            printfn "[DEBUG] Compacted positions calculated"
+            Logging.logVerbosef " Compacted positions calculated"
 
             // Step 4: Apply all positions atomically using existing pipeline
             return! applyMultipleDisplayPositionsWithInfo compactedPositions
@@ -430,7 +430,7 @@ module DisplayControl =
     let private validateDisplayState displayId expectedState =
         let validateSingleAttempt attempt =
             try
-                printfn "[DEBUG] Validation attempt %d for %s (expecting %b)" attempt displayId expectedState
+                Logging.logVerbosef " Validation attempt %d for %s (expecting %b)" attempt displayId expectedState
                 
                 // Method 1: Check via DisplayDetection (our existing system)
                 let displays = DisplayDetection.getConnectedDisplays()
@@ -483,7 +483,7 @@ module DisplayControl =
                 match detectionResult, apiResult, ccdResult with
                 | Some detectionEnabled, Some apiEnabled, Some ccdEnabled ->
                     let consensus = [detectionEnabled; apiEnabled; ccdEnabled] |> List.countBy id |> List.maxBy snd |> fst
-                    printfn "[DEBUG] Validation consensus: Detection=%b, API=%b, CCD=%b -> %b" 
+                    Logging.logVerbosef " Validation consensus: Detection=%b, API=%b, CCD=%b -> %b" 
                             detectionEnabled apiEnabled ccdEnabled consensus
                     
                     if consensus = expectedState then
@@ -493,7 +493,7 @@ module DisplayControl =
                 
                 | Some detectionEnabled, Some apiEnabled, None ->
                     let consensus = if detectionEnabled = apiEnabled then detectionEnabled else detectionEnabled
-                    printfn "[DEBUG] Validation (no CCD): Detection=%b, API=%b -> %b" detectionEnabled apiEnabled consensus
+                    Logging.logVerbosef " Validation (no CCD): Detection=%b, API=%b -> %b" detectionEnabled apiEnabled consensus
                     
                     if consensus = expectedState then
                         Ok { IsEnabled = consensus; IsResponding = true; ValidationAttempts = attempt; LastError = None }
@@ -501,7 +501,7 @@ module DisplayControl =
                         Error (sprintf "Display state mismatch - expected %b, got %b" expectedState consensus)
                 
                 | Some detectionEnabled, None, _ ->
-                    printfn "[DEBUG] Validation (detection only): %b" detectionEnabled
+                    Logging.logVerbosef " Validation (detection only): %b" detectionEnabled
                     if detectionEnabled = expectedState then
                         Ok { IsEnabled = detectionEnabled; IsResponding = true; ValidationAttempts = attempt; LastError = None }
                     else
@@ -552,7 +552,7 @@ module DisplayControl =
         let result = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &mutableDevMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
         
         if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-            printfn "[DEBUG] SUCCESS: Display restored from saved state!"
+            Logging.logVerbosef " SUCCESS: Display restored from saved state!"
             Ok ()
         else
             Error (sprintf "Failed to restore saved state (%d)" result)
@@ -586,7 +586,7 @@ module DisplayControl =
         let apiDeviceName = getAPIDeviceNameForDisplay displayId
         let result = WindowsAPI.ChangeDisplaySettingsEx(apiDeviceName, &devMode, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
         if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-            printfn "[DEBUG] SUCCESS: Display enabled with auto-detected settings!"
+            Logging.logVerbosef " SUCCESS: Display enabled with auto-detected settings!"
             Ok ()
         else
             Error (getDisplayChangeErrorMessage result)
@@ -594,12 +594,12 @@ module DisplayControl =
     // Strategy implementation functions
     let private executeStrategy strategy displayId =
         try
-            printfn "[DEBUG] Executing strategy %A for display %s" strategy displayId
+            Logging.logVerbosef " Executing strategy %A for display %s" strategy displayId
             
             match strategy with
             | CCDTargeted ->
                 // Use ALL paths including inactive to find DISPLAY4
-                printfn "[DEBUG] CCD Targeted: Getting ALL paths to find inactive display..."
+                Logging.logVerbosef " CCD Targeted: Getting ALL paths to find inactive display..."
                 match CCDPathManagement.getDisplayPaths true with  // Get ALL paths including inactive
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
                     match CCDPathManagement.findInactiveDisplayPath displayId pathArray pathCount with
@@ -612,7 +612,7 @@ module DisplayControl =
                             modifiedPath.targetInfo.targetAvailable <- 1
                             modifiedPaths.[pathIndex] <- modifiedPath
                             
-                            printfn "[DEBUG] CCD Targeted: Applying targeted configuration using filtered paths..."
+                            Logging.logVerbosef " CCD Targeted: Applying targeted configuration using filtered paths..."
                             // Use filtered version to handle large path arrays
                             DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount 
                                    (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
@@ -622,7 +622,7 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | CCDModePopulation ->
-                printfn "[DEBUG] CCD Mode Population: Creating mode information for inactive display..."
+                Logging.logVerbosef " CCD Mode Population: Creating mode information for inactive display..."
                 // Get ALL paths including inactive ones
                 match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
@@ -644,7 +644,7 @@ module DisplayControl =
                                 modifiedPath.targetInfo.targetAvailable <- 1
                                 pathArray.[pathIndex] <- modifiedPath
                                 
-                                printfn "[DEBUG] CCD Mode Population: Applying configuration with populated modes..."
+                                Logging.logVerbosef " CCD Mode Population: Applying configuration with populated modes..."
                                 DisplayConfigurationAPI.applyDisplayConfiguration pathArray expandedModeArray pathCount (modeCount + 2u)
                                        (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
                                         WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE)
@@ -654,7 +654,7 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | CCDDirectPath ->
-                printfn "[DEBUG] CCD Direct Path: Using exact path with no filtering or modifications..."
+                Logging.logVerbosef " CCD Direct Path: Using exact path with no filtering or modifications..."
                 // Get ALL paths to find DISPLAY4, then use it directly
                 match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
@@ -667,7 +667,7 @@ module DisplayControl =
                         modifiedPath.targetInfo.targetAvailable <- 1
                         directPaths.[pathIndex] <- modifiedPath
                         
-                        printfn "[DEBUG] Using direct path activation with all %d paths" pathCount
+                        Logging.logVerbosef " Using direct path activation with all %d paths" pathCount
                         DisplayConfigurationAPI.applyDisplayConfiguration directPaths modeArray pathCount modeCount 
                                (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
                                 WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE)
@@ -675,18 +675,18 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | CCDTopologyExtend ->
-                printfn "[DEBUG] CCD Topology: Applying extend topology with improved flags..."
+                Logging.logVerbosef " CCD Topology: Applying extend topology with improved flags..."
                 DisplayConfigurationAPI.applyDisplayConfiguration [||] [||] 0u 0u
                        (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_TOPOLOGY_EXTEND ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES)
                 
             | CCDMinimalPaths ->
-                printfn "[DEBUG] CCD Minimal Paths: Using filtered path configuration..."
+                Logging.logVerbosef " CCD Minimal Paths: Using filtered path configuration..."
                 // Get ALL paths to find DISPLAY4, then filter for SetDisplayConfig
                 match CCDPathManagement.getDisplayPathsWithValidation true with
                 | Ok (pathArray, modeArray, pathCount, modeCount) ->
                     match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
-                        printfn "[DEBUG] Found target display at path index %d" pathIndex
+                        Logging.logVerbosef " Found target display at path index %d" pathIndex
                         
                         // Create a minimal array with just the paths we need
                         let activePaths = pathArray |> Array.take (int pathCount) |> Array.filter (fun p -> p.flags <> 0u)
@@ -698,7 +698,7 @@ module DisplayControl =
                         modifiedPath.targetInfo.targetAvailable <- 1
                         minimalPaths.[Array.length activePaths] <- modifiedPath
                         
-                        printfn "[DEBUG] Using minimal path set: %d paths (was %d)" (Array.length minimalPaths) pathCount
+                        Logging.logVerbosef " Using minimal path set: %d paths (was %d)" (Array.length minimalPaths) pathCount
                         DisplayConfigurationAPI.applyDisplayConfigurationFiltered minimalPaths modeArray (uint32 (Array.length minimalPaths)) modeCount 
                                (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| 
                                 WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE)
@@ -706,7 +706,7 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | DEVMODEDirect ->
-                printfn "[DEBUG] DEVMODE Direct: Getting saved state or best available mode..."
+                Logging.logVerbosef " DEVMODE Direct: Getting saved state or best available mode..."
                 match DisplayStateCache.getSavedDisplayState displayId with
                 | Some savedState -> enableWithSavedState displayId savedState
                 | None ->
@@ -715,7 +715,7 @@ module DisplayControl =
                     | Error err -> Error err
                     
             | DEVMODEWithReset ->
-                printfn "[DEBUG] DEVMODE Reset: Using reset sequence..."
+                Logging.logVerbosef " DEVMODE Reset: Using reset sequence..."
                 match getBestAvailableMode displayId with
                 | Ok bestMode ->
                     let mutable devMode = WindowsAPI.DEVMODE()
@@ -753,7 +753,7 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | HardwareReset ->
-                printfn "[DEBUG] Hardware Reset: Forcing mode enumeration and adapter reset..."
+                Logging.logVerbosef " Hardware Reset: Forcing mode enumeration and adapter reset..."
                 match DisplayConfigurationAPI.applyDisplayConfiguration [||] [||] 0u 0u
                        (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_FORCE_MODE_ENUMERATION ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES) with
                 | Ok _ ->
@@ -762,7 +762,7 @@ module DisplayControl =
                 | Error err -> Error err
                 
             | DisplaySwitchFallback ->
-                printfn "[DEBUG] Display Switch Fallback: Using Windows DisplaySwitch.exe /extend..."
+                Logging.logVerbosef " Display Switch Fallback: Using Windows DisplaySwitch.exe /extend..."
                 try
                     let startInfo = System.Diagnostics.ProcessStartInfo()
                     startInfo.FileName <- "DisplaySwitch.exe"
@@ -776,7 +776,7 @@ module DisplayControl =
                     let _ = proc.WaitForExit(DisplayConstants.DisplaySwitchTimeout)
                     
                     if proc.ExitCode = 0 then
-                        printfn "[DEBUG] DisplaySwitch.exe completed successfully"
+                        Logging.logVerbosef " DisplaySwitch.exe completed successfully"
                         System.Threading.Thread.Sleep(DisplayConstants.DisplaySwitchSettleDelay)
                         Ok ()
                     else
@@ -794,11 +794,11 @@ module DisplayControl =
         let tryStrategyWithValidation strategy =
             match executeStrategy strategy displayId with
             | Ok _ ->
-                printfn "[DEBUG] Strategy %A executed, validating display state..." strategy
+                Logging.logVerbosef " Strategy %A executed, validating display state..." strategy
                 match validateDisplayState displayId true with
                 | Ok validationResult ->
                     if validationResult.IsEnabled then
-                        printfn "[DEBUG] SUCCESS: Strategy %A worked! Display enabled and validated." strategy
+                        Logging.logVerbosef " SUCCESS: Strategy %A worked! Display enabled and validated." strategy
                         Ok validationResult
                     else
                         Error (sprintf "Strategy %A: API succeeded but validation failed" strategy)
@@ -813,29 +813,29 @@ module DisplayControl =
             | strategy :: rest ->
                 match tryStrategyWithValidation strategy with
                 | Ok result ->
-                    printfn "[DEBUG] Display enable succeeded with strategy %A after %d validation attempts" 
+                    Logging.logVerbosef " Display enable succeeded with strategy %A after %d validation attempts" 
                             strategy result.ValidationAttempts
                     Ok ()
                 | Error msg ->
-                    printfn "[DEBUG] Strategy %A failed: %s" strategy msg
-                    printfn "[DEBUG] Trying next strategy..."
+                    Logging.logVerbosef " Strategy %A failed: %s" strategy msg
+                    Logging.logVerbosef " Trying next strategy..."
                     tryStrategies rest
         
-        printfn "[DEBUG] ========== Starting Multi-Strategy Display Enable =========="
-        printfn "[DEBUG] Display ID: %s" displayId
-        printfn "[DEBUG] Available strategies: %A" strategies
+        Logging.logVerbosef " ========== Starting Multi-Strategy Display Enable =========="
+        Logging.logVerbosef " Display ID: %s" displayId
+        Logging.logVerbosef " Available strategies: %A" strategies
         tryStrategies strategies
     
     // Disable display using CCD API
     let private disableDisplay displayId =
         let stateSaved = DisplayStateCache.saveDisplayState displayId
         if stateSaved then
-            printfn "[DEBUG] Display state saved successfully"
+            Logging.logVerbosef " Display state saved successfully"
         else
-            printfn "[DEBUG] Warning: Failed to save display state"
+            Logging.logVerbosef " Warning: Failed to save display state"
         
         // Use CCD API with target mapping to properly disable the display (like TV fix)
-        printfn "[DEBUG] Using CCD API with target mapping to disable display %s" displayId
+        Logging.logVerbosef " Using CCD API with target mapping to disable display %s" displayId
         match CCDPathManagement.getDisplayPaths false with  // Get only active paths
         | Ok (pathArray, modeArray, pathCount, modeCount) ->
             // Find the correct path using target mapping approach from TV fix
@@ -858,7 +858,7 @@ module DisplayControl =
 
                     match pathOption with
                     | Some (pathIndex, targetPath) ->
-                        printfn "[DEBUG] Found target path %d with Target ID %u for %s" pathIndex targetId displayId
+                        Logging.logVerbosef " Found target path %d with Target ID %u for %s" pathIndex targetId displayId
 
                         // Create new configuration with the target display removed
                         let filteredPaths =
@@ -867,16 +867,16 @@ module DisplayControl =
                             |> Array.filter (fun (i, _) -> i <> pathIndex)
                             |> Array.map snd
 
-                        printfn "[DEBUG] Removing display path (was %d paths, now %d paths)" (int pathCount) filteredPaths.Length
+                        Logging.logVerbosef " Removing display path (was %d paths, now %d paths)" (int pathCount) filteredPaths.Length
 
                         match DisplayConfigurationAPI.applyDisplayConfigurationFiltered filteredPaths modeArray (uint32 filteredPaths.Length) modeCount
                               (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG |||
                                WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE) with
                         | Ok _ ->
-                            printfn "[DEBUG] SUCCESS: Display disabled using target mapping approach!"
+                            Logging.logVerbosef " SUCCESS: Display disabled using target mapping approach!"
                             Ok ()
                         | Error err ->
-                            printfn "[DEBUG] Target mapping disable failed: %s, trying path deactivation" err
+                            Logging.logVerbosef " Target mapping disable failed: %s, trying path deactivation" err
                             // Fallback: deactivate the path instead of removing it
                             let modifiedPaths = Array.copy pathArray
                             let mutable modifiedPath = targetPath
@@ -887,20 +887,20 @@ module DisplayControl =
                                   (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG |||
                                    WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE) with
                             | Ok _ ->
-                                printfn "[DEBUG] SUCCESS: Display disabled using path deactivation!"
+                                Logging.logVerbosef " SUCCESS: Display disabled using path deactivation!"
                                 Ok ()
                             | Error err2 ->
-                                printfn "[DEBUG] Path deactivation failed: %s, using ChangeDisplaySettings" err2
+                                Logging.logVerbosef " Path deactivation failed: %s, using ChangeDisplaySettings" err2
                                 let apiDeviceName = getAPIDeviceNameForDisplay displayId
                                 let result = WindowsAPI.ChangeDisplaySettingsExNull(apiDeviceName, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
                                 if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-                                    printfn "[DEBUG] SUCCESS: Display disabled with ChangeDisplaySettings!"
+                                    Logging.logVerbosef " SUCCESS: Display disabled with ChangeDisplaySettings!"
                                     Ok ()
                                 else
-                                    printfn "[DEBUG] ChangeDisplaySettings failed (%d), treating as success for now" result
+                                    Logging.logVerbosef " ChangeDisplaySettings failed (%d), treating as success for now" result
                                     Ok ()
                     | None ->
-                        printfn "[DEBUG] Could not find path with Target ID %u, using source ID fallback" targetId
+                        Logging.logVerbosef " Could not find path with Target ID %u, using source ID fallback" targetId
                         match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
                         | Ok (targetPath, pathIndex) ->
                             let modifiedPaths = Array.copy pathArray
@@ -911,12 +911,12 @@ module DisplayControl =
                             match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount
                                   (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG) with
                             | Ok _ ->
-                                printfn "[DEBUG] SUCCESS: Display disabled using source ID fallback!"
+                                Logging.logVerbosef " SUCCESS: Display disabled using source ID fallback!"
                                 Ok ()
                             | Error err -> Error err
                         | Error err -> Error err
                 | None ->
-                    printfn "[DEBUG] No target mapping found for %s, using source ID approach" displayId
+                    Logging.logVerbosef " No target mapping found for %s, using source ID approach" displayId
                     match CCDPathManagement.findDisplayPathBySourceId displayId pathArray pathCount with
                     | Ok (targetPath, pathIndex) ->
                         let modifiedPaths = Array.copy pathArray
@@ -927,33 +927,33 @@ module DisplayControl =
                         match DisplayConfigurationAPI.applyDisplayConfigurationFiltered modifiedPaths modeArray pathCount modeCount
                               (WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG) with
                         | Ok _ ->
-                            printfn "[DEBUG] SUCCESS: Display disabled using source ID approach!"
+                            Logging.logVerbosef " SUCCESS: Display disabled using source ID approach!"
                             Ok ()
                         | Error err -> Error err
                     | Error err -> Error err
         | Error err ->
-            printfn "[DEBUG] Could not get display paths: %s, using fallback" err
+            Logging.logVerbosef " Could not get display paths: %s, using fallback" err
             let apiDeviceName = getAPIDeviceNameForDisplay displayId
             let result = WindowsAPI.ChangeDisplaySettingsExNull(apiDeviceName, IntPtr.Zero, IntPtr.Zero, WindowsAPI.CDS.CDS_UPDATEREGISTRY, IntPtr.Zero)
             if result = WindowsAPI.DISP.DISP_CHANGE_SUCCESSFUL then
-                printfn "[DEBUG] SUCCESS: Display disabled with fallback!"
+                Logging.logVerbosef " SUCCESS: Display disabled with fallback!"
                 Ok ()
             else
-                printfn "[DEBUG] Fallback disable failed (%d), treating as success" result
+                Logging.logVerbosef " Fallback disable failed (%d), treating as success" result
                 Ok ()
     
     // Enable or disable a display - now functional with comprehensive validation
     let setDisplayEnabled (displayId: DisplayId) (enabled: bool) =
         try
-            printfn "[DEBUG] ========== Starting setDisplayEnabled =========="
-            printfn "[DEBUG] Display ID: %s, Target State: %b" displayId enabled
+            Logging.logVerbosef " ========== Starting setDisplayEnabled =========="
+            Logging.logVerbosef " Display ID: %s, Target State: %b" displayId enabled
             
             // Get initial state for comparison
             match validateDisplayState displayId (not enabled) with
             | Ok initialState -> 
-                printfn "[DEBUG] Initial state validated: IsEnabled=%b" initialState.IsEnabled
+                Logging.logVerbosef " Initial state validated: IsEnabled=%b" initialState.IsEnabled
             | Error errorMsg -> 
-                printfn "[DEBUG] Initial state check failed: %s" errorMsg
+                Logging.logVerbosef " Initial state check failed: %s" errorMsg
             
             if enabled then
                 tryEnableDisplay displayId
@@ -967,8 +967,8 @@ module DisplayControl =
     let testDisplayMode (displayId: DisplayId) (mode: DisplayMode) (orientation: DisplayOrientation) onComplete =
         async {
             try
-                printfn "[DEBUG] ========== Starting testDisplayMode =========="
-                printfn "[DEBUG] Testing mode %dx%d @ %dHz for 15 seconds" mode.Width mode.Height mode.RefreshRate
+                Logging.logVerbosef " ========== Starting testDisplayMode =========="
+                Logging.logVerbosef " Testing mode %dx%d @ %dHz for 15 seconds" mode.Width mode.Height mode.RefreshRate
                 
                 // Get current display settings to restore later
                 let mutable currentDevMode = WindowsAPI.DEVMODE()
@@ -977,7 +977,7 @@ module DisplayControl =
                 let getCurrentResult = WindowsAPI.EnumDisplaySettings(apiDeviceName, -1, &currentDevMode)
                 
                 if not getCurrentResult then
-                    printfn "[DEBUG] ERROR: Could not get current display settings for test mode"
+                    Logging.logVerbosef " ERROR: Could not get current display settings for test mode"
                     onComplete (Error "Could not get current display settings")
                 else
                     let originalMode = {
@@ -988,32 +988,32 @@ module DisplayControl =
                     }
                     let originalOrientation = DisplayStateCache.windowsToOrientation currentDevMode.dmDisplayOrientation
                     
-                    printfn "[DEBUG] Original mode: %dx%d @ %dHz, orientation: %A" 
+                    Logging.logVerbosef " Original mode: %dx%d @ %dHz, orientation: %A" 
                             originalMode.Width originalMode.Height originalMode.RefreshRate originalOrientation
                     
                     // Apply the test mode
                     match applyDisplayMode displayId mode orientation with
                     | Ok _ ->
-                        printfn "[DEBUG] Test mode applied successfully, waiting 15 seconds..."
+                        Logging.logVerbosef " Test mode applied successfully, waiting 15 seconds..."
                         
                         // Wait for 15 seconds
                         do! Async.Sleep(DisplayConstants.TestModeDisplayTime)
                         
                         // Revert to original mode
-                        printfn "[DEBUG] Reverting to original mode..."
+                        Logging.logVerbosef " Reverting to original mode..."
                         match applyDisplayMode displayId originalMode originalOrientation with
                         | Ok _ ->
-                            printfn "[DEBUG] Successfully reverted to original mode"
+                            Logging.logVerbosef " Successfully reverted to original mode"
                             onComplete (Ok "Test completed - reverted to original mode")
                         | Error err ->
-                            printfn "[DEBUG] ERROR: Failed to revert to original mode: %s" err
+                            Logging.logVerbosef " ERROR: Failed to revert to original mode: %s" err
                             onComplete (Error (sprintf "Test completed but failed to revert: %s" err))
                     | Error err ->
-                        printfn "[DEBUG] ERROR: Failed to apply test mode: %s" err
+                        Logging.logVerbosef " ERROR: Failed to apply test mode: %s" err
                         onComplete (Error (sprintf "Failed to apply test mode: %s" err))
             with
             | ex ->
-                printfn "[DEBUG] EXCEPTION in testDisplayMode: %s" ex.Message
+                Logging.logVerbosef " EXCEPTION in testDisplayMode: %s" ex.Message
                 onComplete (Error (sprintf "Exception during test: %s" ex.Message))
         }
 
@@ -1029,10 +1029,10 @@ module DisplayControl =
 
     // Apply enable/disable to multiple displays with best-effort approach
     let applyMultipleDisplayEnabled (displayOperations: (DisplayId * bool) list) =
-        printfn "[DEBUG] ========== Applying Multiple Display Enable/Disable Operations =========="
-        printfn "[DEBUG] Total displays to process: %d" displayOperations.Length
+        Logging.logVerbosef " ========== Applying Multiple Display Enable/Disable Operations =========="
+        Logging.logVerbosef " Total displays to process: %d" displayOperations.Length
         displayOperations |> List.iteri (fun i (id, enabled) ->
-            printfn "[DEBUG] Display %d: %s -> %s" (i+1) id (if enabled then "ENABLE" else "DISABLE"))
+            Logging.logVerbosef " Display %d: %s -> %s" (i+1) id (if enabled then "ENABLE" else "DISABLE"))
         
         let successes = System.Collections.Generic.List<DisplayId * unit>()
         let failures = System.Collections.Generic.List<DisplayId * string>()
@@ -1041,21 +1041,21 @@ module DisplayControl =
             match setDisplayEnabled displayId enabled with
             | Ok () -> 
                 successes.Add((displayId, ()))
-                printfn "[DEBUG] SUCCESS: %s %s" displayId (if enabled then "enabled" else "disabled")
+                Logging.logVerbosef " SUCCESS: %s %s" displayId (if enabled then "enabled" else "disabled")
             | Error err -> 
                 failures.Add((displayId, err))
-                printfn "[DEBUG] FAILED: %s - %s" displayId err
+                Logging.logVerbosef " FAILED: %s - %s" displayId err
         
         let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
-        printfn "[DEBUG] Batch enable/disable completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Logging.logVerbosef " Batch enable/disable completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
         Ok batchResult
 
     // Apply display modes to multiple displays with best-effort approach
     let applyMultipleDisplayModes (displayModeOperations: (DisplayId * DisplayMode * DisplayOrientation) list) =
-        printfn "[DEBUG] ========== Applying Multiple Display Mode Operations =========="
-        printfn "[DEBUG] Total displays to process: %d" displayModeOperations.Length
+        Logging.logVerbosef " ========== Applying Multiple Display Mode Operations =========="
+        Logging.logVerbosef " Total displays to process: %d" displayModeOperations.Length
         displayModeOperations |> List.iteri (fun i (id, mode, orientation) ->
-            printfn "[DEBUG] Display %d: %s -> %dx%d @ %dHz, %A" (i+1) id mode.Width mode.Height mode.RefreshRate orientation)
+            Logging.logVerbosef " Display %d: %s -> %dx%d @ %dHz, %A" (i+1) id mode.Width mode.Height mode.RefreshRate orientation)
         
         let successes = System.Collections.Generic.List<DisplayId * unit>()
         let failures = System.Collections.Generic.List<DisplayId * string>()
@@ -1064,21 +1064,21 @@ module DisplayControl =
             match applyDisplayMode displayId mode orientation with
             | Ok () -> 
                 successes.Add((displayId, ()))
-                printfn "[DEBUG] SUCCESS: %s mode applied" displayId
+                Logging.logVerbosef " SUCCESS: %s mode applied" displayId
             | Error err -> 
                 failures.Add((displayId, err))
-                printfn "[DEBUG] FAILED: %s - %s" displayId err
+                Logging.logVerbosef " FAILED: %s - %s" displayId err
         
         let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
-        printfn "[DEBUG] Batch mode changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Logging.logVerbosef " Batch mode changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
         Ok batchResult
 
     // Apply orientation changes to multiple displays with best-effort approach
     let applyMultipleDisplayOrientations (displayOrientationOperations: (DisplayId * DisplayOrientation) list) =
-        printfn "[DEBUG] ========== Applying Multiple Display Orientation Operations =========="
-        printfn "[DEBUG] Total displays to process: %d" displayOrientationOperations.Length
+        Logging.logVerbosef " ========== Applying Multiple Display Orientation Operations =========="
+        Logging.logVerbosef " Total displays to process: %d" displayOrientationOperations.Length
         displayOrientationOperations |> List.iteri (fun i (id, orientation) ->
-            printfn "[DEBUG] Display %d: %s -> %A" (i+1) id orientation)
+            Logging.logVerbosef " Display %d: %s -> %A" (i+1) id orientation)
         
         let successes = System.Collections.Generic.List<DisplayId * unit>()
         let failures = System.Collections.Generic.List<DisplayId * string>()
@@ -1087,11 +1087,11 @@ module DisplayControl =
             match setDisplayOrientation displayId orientation with
             | Ok () -> 
                 successes.Add((displayId, ()))
-                printfn "[DEBUG] SUCCESS: %s orientation set to %A" displayId orientation
+                Logging.logVerbosef " SUCCESS: %s orientation set to %A" displayId orientation
             | Error err -> 
                 failures.Add((displayId, err))
-                printfn "[DEBUG] FAILED: %s - %s" displayId err
+                Logging.logVerbosef " FAILED: %s - %s" displayId err
         
         let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
-        printfn "[DEBUG] Batch orientation changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
+        Logging.logVerbosef " Batch orientation changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
         Ok batchResult

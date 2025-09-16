@@ -16,22 +16,22 @@ module DisplayConfigurationAPI =
     // Apply display configuration with proper validation
     let applyDisplayConfiguration (paths: WindowsAPI.DISPLAYCONFIG_PATH_INFO[]) (modes: WindowsAPI.DISPLAYCONFIG_MODE_INFO[]) (pathCount: uint32) (modeCount: uint32) flags =
         try
-            printfn "[DEBUG] Applying display configuration with %u paths, %u modes" pathCount modeCount
-            printfn "[DEBUG] Flags: 0x%08X" flags
+            Logging.logVerbosef " Applying display configuration with %u paths, %u modes" pathCount modeCount
+            Logging.logVerbosef " Flags: 0x%08X" flags
 
             // Log only essential configuration details (reduced verbosity)
             if int pathCount <= 5 then
                 for i in 0 .. int pathCount - 1 do
                     let path = paths.[i]
-                    printfn "[DEBUG] Path %d: Source %d -> Target %d, Flags: 0x%08X"
+                    Logging.logVerbosef " Path %d: Source %d -> Target %d, Flags: 0x%08X"
                             i path.sourceInfo.id path.targetInfo.id path.flags
             else
-                printfn "[DEBUG] Configuring %u paths (details omitted for brevity)" pathCount
+                Logging.logVerbosef " Configuring %u paths (details omitted for brevity)" pathCount
 
             let result = WindowsAPI.SetDisplayConfig(pathCount, paths, modeCount, modes, flags)
 
             if result = WindowsAPI.ERROR.ERROR_SUCCESS then
-                printfn "[DEBUG] SetDisplayConfig succeeded"
+                Logging.logVerbosef " SetDisplayConfig succeeded"
                 Ok ()
             else
                 let errorMsg = match result with
@@ -40,31 +40,31 @@ module DisplayConfigurationAPI =
                                | x when x = WindowsAPI.ERROR.ERROR_ACCESS_DENIED -> "Access denied - insufficient privileges"
                                | x when x = WindowsAPI.ERROR.ERROR_GEN_FAILURE -> "General failure in display driver"
                                | _ -> sprintf "Unknown error code: %d" result
-                printfn "[DEBUG] SetDisplayConfig failed: %s" errorMsg
+                Logging.logVerbosef " SetDisplayConfig failed: %s" errorMsg
                 Error errorMsg
         with
         | ex ->
-            printfn "[DEBUG] Exception in applyDisplayConfiguration: %s" ex.Message
+            Logging.logVerbosef " Exception in applyDisplayConfiguration: %s" ex.Message
             Error (sprintf "Exception applying configuration: %s" ex.Message)
 
     // Apply display configuration with filtered paths to avoid "Invalid parameter" with large arrays
     let applyDisplayConfigurationFiltered (paths: WindowsAPI.DISPLAYCONFIG_PATH_INFO[]) (modes: WindowsAPI.DISPLAYCONFIG_MODE_INFO[]) (pathCount: uint32) (modeCount: uint32) flags =
         try
-            printfn "[DEBUG] Applying filtered display configuration (original: %u paths)" pathCount
+            Logging.logVerbosef " Applying filtered display configuration (original: %u paths)" pathCount
 
             // Filter paths if we have a large array that might cause issues
             let (finalPaths, finalPathCount) =
                 if pathCount > 10u then
-                    printfn "[DEBUG] Large path array detected, filtering to relevant paths only"
+                    Logging.logVerbosef " Large path array detected, filtering to relevant paths only"
                     filterRelevantPaths paths pathCount
                 else
                     (paths, pathCount)
 
-            printfn "[DEBUG] Using %u paths for SetDisplayConfig" finalPathCount
+            Logging.logVerbosef " Using %u paths for SetDisplayConfig" finalPathCount
             applyDisplayConfiguration finalPaths modes finalPathCount modeCount flags
         with
         | ex ->
-            printfn "[DEBUG] Exception in filtered apply: %s" ex.Message
+            Logging.logVerbosef " Exception in filtered apply: %s" ex.Message
             Error (sprintf "Exception in filtered apply: %s" ex.Message)
 
     // Create a source mode info entry from display mode
@@ -109,7 +109,7 @@ module DisplayConfigurationAPI =
             let sourceMode = createSourceModeInfo path.sourceInfo.adapterId path.sourceInfo.id bestMode.Width bestMode.Height
             let targetMode = createTargetModeInfo path.targetInfo.adapterId path.targetInfo.id bestMode.Width bestMode.Height bestMode.RefreshRate
 
-            printfn "[DEBUG] Created mode info for %s: %dx%d @ %dHz" displayId bestMode.Width bestMode.Height bestMode.RefreshRate
+            Logging.logVerbosef " Created mode info for %s: %dx%d @ %dHz" displayId bestMode.Width bestMode.Height bestMode.RefreshRate
             Ok (sourceMode, targetMode)
         with
         | ex ->
@@ -139,13 +139,13 @@ module DisplayConfigurationAPI =
                         updatedPath.targetInfo.modeInfoIdx <- uint32 targetIndex
                         pathArray.[pathIndex] <- updatedPath
 
-                        printfn "[DEBUG] Populated modes for path %d: source index %d, target index %d" pathIndex sourceIndex targetIndex
+                        Logging.logVerbosef " Populated modes for path %d: source index %d, target index %d" pathIndex sourceIndex targetIndex
                         Ok ()
                     else
                         Error "No available slots in mode array"
                 | Error err -> Error err
             else
-                printfn "[DEBUG] Path already has mode information - no population needed"
+                Logging.logVerbosef " Path already has mode information - no population needed"
                 Ok ()
         with
         | ex ->
@@ -155,7 +155,7 @@ module DisplayConfigurationAPI =
     // Update display position using CCD API
     let updateDisplayPosition displayId newPosition =
         result {
-            printfn "[DEBUG] Updating %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
+            Logging.logVerbosef " Updating %s position to (%d, %d) using CCD API" displayId newPosition.X newPosition.Y
 
             let! (pathArray, modeArray, pathCount, modeCount) = getDisplayPaths false
             let! (path, pathIndex) = findDisplayPath displayId pathArray pathCount
@@ -172,7 +172,7 @@ module DisplayConfigurationAPI =
                 sourceMode.modeInfo.sourceMode.position.y <- int32 newPosition.Y
                 modeArray.[sourceIndex] <- sourceMode
 
-                printfn "[DEBUG] Updated source mode position for %s at index %d" displayId sourceIndex
+                Logging.logVerbosef " Updated source mode position for %s at index %d" displayId sourceIndex
 
                 // Apply configuration with updated position
                 let flags = WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE
@@ -184,7 +184,7 @@ module DisplayConfigurationAPI =
     // Apply multiple position changes atomically using CCD API with validation
     let applyMultiplePositionChanges (positionChanges: (DisplayId * Position) list) =
         result {
-            printfn "[DEBUG] Applying %d position changes using CCD API" (List.length positionChanges)
+            Logging.logVerbosef " Applying %d position changes using CCD API" (List.length positionChanges)
 
             // Get fresh configuration to avoid stale state issues
             let! (pathArray, modeArray, pathCount, modeCount) = getDisplayPaths false
@@ -197,20 +197,20 @@ module DisplayConfigurationAPI =
                     | Ok (path, _) ->
                         let sourceIndex = int path.sourceInfo.modeInfoIdx
                         if sourceIndex = int WindowsAPI.DISPLAYCONFIG_PATH.DISPLAYCONFIG_PATH_MODE_IDX_INVALID then
-                            printfn "[ERROR] Source mode index is invalid for %s" displayId
+                            Logging.logErrorf " Source mode index is invalid for %s" displayId
                             Error (sprintf "Source mode index is invalid for %s" displayId)
                         elif sourceIndex >= 0 && sourceIndex < int modeCount then
                             let mutable sourceMode = modeArray.[sourceIndex]
                             sourceMode.modeInfo.sourceMode.position.x <- int32 newPosition.X
                             sourceMode.modeInfo.sourceMode.position.y <- int32 newPosition.Y
                             modeArray.[sourceIndex] <- sourceMode
-                            printfn "[DEBUG] Updated %s position to (%d, %d)" displayId newPosition.X newPosition.Y
+                            Logging.logVerbosef " Updated %s position to (%d, %d)" displayId newPosition.X newPosition.Y
                             Ok ()
                         else
-                            printfn "[ERROR] Invalid source mode index %d for %s" sourceIndex displayId
+                            Logging.logErrorf " Invalid source mode index %d for %s" sourceIndex displayId
                             Error (sprintf "Invalid source mode index %d for %s" sourceIndex displayId)
                     | Error err ->
-                        printfn "[ERROR] Failed to find path for %s: %s" displayId err
+                        Logging.logErrorf " Failed to find path for %s: %s" displayId err
                         Error (sprintf "Failed to find path for %s: %s" displayId err))
 
             // Check if all updates succeeded
@@ -219,15 +219,15 @@ module DisplayConfigurationAPI =
                 return! Error (sprintf "Failed to update displays: %s" (String.concat "; " errors))
             else
                 // First validate the configuration
-                printfn "[DEBUG] Validating configuration before applying..."
+                Logging.logVerbosef " Validating configuration before applying..."
                 let validationFlags = WindowsAPI.SDC.SDC_VALIDATE ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG
                 let validationResult = WindowsAPI.SetDisplayConfig(pathCount, pathArray, modeCount, modeArray, validationFlags)
 
                 if validationResult <> WindowsAPI.ERROR.ERROR_SUCCESS then
-                    printfn "[DEBUG] Configuration validation failed with code: %d" validationResult
+                    Logging.logVerbosef " Configuration validation failed with code: %d" validationResult
                     return! Error (sprintf "Configuration validation failed before application (code: %d)" validationResult)
                 else
-                    printfn "[DEBUG] Configuration validation passed"
+                    Logging.logVerbosef " Configuration validation passed"
                     // Apply all changes atomically
                     let flags = WindowsAPI.SDC.SDC_APPLY ||| WindowsAPI.SDC.SDC_USE_SUPPLIED_DISPLAY_CONFIG ||| WindowsAPI.SDC.SDC_ALLOW_CHANGES ||| WindowsAPI.SDC.SDC_SAVE_TO_DATABASE
                     return! applyDisplayConfiguration pathArray modeArray pathCount modeCount flags

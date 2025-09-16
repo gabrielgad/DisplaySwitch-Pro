@@ -44,7 +44,7 @@ module AppState =
     // Preset management
     let savePreset (name: string) (config: DisplayConfiguration) (state: AppState) =
         let namedConfig = { config with Name = name; CreatedAt = DateTime.Now }
-        printfn "[DEBUG] AppState: Saving preset '%s' with %d displays" name namedConfig.Displays.Length
+        Logging.logVerbosef "AppState: Saving preset '%s' with %d displays" name namedConfig.Displays.Length
         { state with 
             SavedPresets = Map.add name namedConfig state.SavedPresets
             LastUpdate = DateTime.Now }
@@ -64,7 +64,7 @@ module AppState =
         Map.tryFind name state.SavedPresets
     
     let deletePreset (name: string) (state: AppState) : AppState =
-        printfn "[DEBUG] AppState: Deleting preset '%s'" name
+        Logging.logVerbosef "AppState: Deleting preset '%s'" name
         { state with 
             SavedPresets = Map.remove name state.SavedPresets
             LastUpdate = DateTime.Now }

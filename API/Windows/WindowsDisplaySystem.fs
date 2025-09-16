@@ -7,7 +7,7 @@ module WindowsDisplaySystem =
     
     // Initialize the display system
     let initialize() =
-        printfn "[DEBUG] Initializing WindowsDisplaySystem - loading saved display states..."
+        Logging.logVerbosef " Initializing WindowsDisplaySystem - loading saved display states..."
         DisplayStateCache.initialize()
 
     // Main function to get all connected displays (following ECS pattern)

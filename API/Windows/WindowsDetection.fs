@@ -123,7 +123,7 @@ module DisplayDetection =
             foundMode
         with
         | ex ->
-            printfn "[DEBUG] Error finding exact DEVMODE: %s" ex.Message
+            Logging.logVerbosef " Error finding exact DEVMODE: %s" ex.Message
             None
 
     // Get all supported display modes for a display device
@@ -156,11 +156,11 @@ module DisplayDetection =
             | Some mode -> 
                 // Commented out verbose mode logging - only log if needed for debugging
                 // if index < 10 then
-                //     printfn "[DEBUG] Mode %d: %dx%d @ %dHz, %d bpp" 
+                //     Logging.logVerbosef " Mode %d: %dx%d @ %dHz, %d bpp" 
                 //             index mode.Width mode.Height mode.RefreshRate mode.BitsPerPixel
                 loop (index + 1) (mode :: acc)
             | None -> 
-                // printfn "[DEBUG] EnumDisplaySettings stopped at index %d" index
+                // Logging.logVerbosef " EnumDisplaySettings stopped at index %d" index
                 List.rev acc
         loop 0 []
     
@@ -399,16 +399,16 @@ module DisplayDetection =
 
         let finalDisplayInfos = activeDisplays @ repositionedInactiveDisplays
 
-        printfn "Found %d displays total" finalDisplayInfos.Length
+        Logging.logVerbose (sprintf "Found %d displays total" finalDisplayInfos.Length)
         let activeCount = activeDisplays.Length
         let inactiveCount = repositionedInactiveDisplays.Length
-        printfn "  - %d active displays" activeCount
-        printfn "  - %d inactive/connected displays" inactiveCount
+        Logging.logVerbose (sprintf "  - %d active displays" activeCount)
+        Logging.logVerbose (sprintf "  - %d inactive/connected displays" inactiveCount)
 
         if inactiveCount > 0 then
-            printfn "[DEBUG] Positioned inactive displays at non-overlapping locations:"
+            Logging.logVerbosef " Positioned inactive displays at non-overlapping locations:"
             repositionedInactiveDisplays |> List.iteri (fun i display ->
-                printfn "[DEBUG]   %s at (%d, %d)" display.Id display.Position.X display.Position.Y)
+                Logging.logVerbosef "   %s at (%d, %d)" display.Id display.Position.X display.Position.Y)
 
         finalDisplayInfos
 

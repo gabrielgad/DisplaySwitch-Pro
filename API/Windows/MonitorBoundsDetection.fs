@@ -42,7 +42,7 @@ module MonitorBoundsDetection =
                         IsPrimary = (monitorInfo.dwFlags &&& 1u) <> 0u  // MONITORINFOF_PRIMARY
                     }
                     monitorMap <- Map.add monitorInfo.szDevice bounds monitorMap
-                    printfn "[DEBUG] Monitor bounds: %s -> (%d,%d)-(%d,%d) %dx%d %s"
+                    Logging.logVerbosef " Monitor bounds: %s -> (%d,%d)-(%d,%d) %dx%d %s"
                         bounds.DeviceName bounds.Left bounds.Top bounds.Right bounds.Bottom
                         bounds.Width bounds.Height (if bounds.IsPrimary then "(Primary)" else "")
 
@@ -51,10 +51,10 @@ module MonitorBoundsDetection =
 
         let enumResult = EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, monitorCallback, IntPtr.Zero)
         if enumResult then
-            printfn "[DEBUG] Successfully enumerated %d active monitors" (Map.count monitorMap)
+            Logging.logVerbosef " Successfully enumerated %d active monitors" (Map.count monitorMap)
             monitorMap
         else
-            printfn "[ERROR] Failed to enumerate display monitors"
+            Logging.logErrorf " Failed to enumerate display monitors"
             Map.empty
 
 
@@ -103,5 +103,5 @@ module MonitorBoundsDetection =
         if enumResult then
             monitors
         else
-            printfn "[ERROR] Failed to get monitor info"
+            Logging.logErrorf " Failed to get monitor info"
             Map.empty
