@@ -24,11 +24,15 @@ module Theme =
         CanvasBgDark: Color
         Success: Color
         Error: Color
+        // TextBox-specific colors for better visibility
+        TextBoxBackground: Color
+        TextBoxForeground: Color
+        TextBoxBorder: Color
     }
     
     let getThemeColors theme =
         match theme with
-        | Light -> 
+        | Light ->
             {
                 Background = Color.FromRgb(248uy, 250uy, 252uy)
                 Surface = Color.FromRgb(255uy, 255uy, 255uy)
@@ -45,8 +49,12 @@ module Theme =
                 CanvasBgDark = Color.FromRgb(230uy, 235uy, 240uy)
                 Success = Color.FromRgb(34uy, 197uy, 94uy)
                 Error = Color.FromRgb(239uy, 68uy, 68uy)
+                // TextBox colors for light theme
+                TextBoxBackground = Color.FromRgb(255uy, 255uy, 255uy)  // Pure white
+                TextBoxForeground = Color.FromRgb(31uy, 41uy, 55uy)     // Dark gray
+                TextBoxBorder = Color.FromRgb(220uy, 225uy, 230uy)      // Light gray border
             }
-        | Dark -> 
+        | Dark ->
             {
                 Background = Color.FromRgb(17uy, 24uy, 39uy)  // Very dark blue
                 Surface = Color.FromRgb(31uy, 41uy, 55uy)  // Dark blue-gray
@@ -63,6 +71,10 @@ module Theme =
                 CanvasBgDark = Color.FromRgb(17uy, 24uy, 39uy)
                 Success = Color.FromRgb(34uy, 197uy, 94uy)
                 Error = Color.FromRgb(248uy, 113uy, 113uy)
+                // TextBox colors for dark theme - much better contrast
+                TextBoxBackground = Color.FromRgb(75uy, 85uy, 99uy)    // Lighter gray for better visibility
+                TextBoxForeground = Color.FromRgb(243uy, 244uy, 246uy) // Light text
+                TextBoxBorder = Color.FromRgb(107uy, 114uy, 128uy)     // Medium gray border
             }
     
     let mutable currentTheme = Light

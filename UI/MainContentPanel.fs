@@ -50,12 +50,12 @@ module MainContentPanel =
         textBox.Text <- sprintf "Layout_%s" (DateTime.Now.ToString("yyyy-MM-dd_HH-mm"))
         textBox.FontSize <- 13.0
         textBox.Margin <- Thickness(0.0, 0.0, 0.0, 20.0)
-        textBox.Background <- SolidColorBrush(colors.Surface) :> IBrush
-        textBox.Foreground <- SolidColorBrush(colors.Text) :> IBrush
-        textBox.BorderBrush <- SolidColorBrush(colors.Border) :> IBrush
-        textBox.CaretBrush <- SolidColorBrush(colors.Text) :> IBrush
+        textBox.Background <- SolidColorBrush(colors.TextBoxBackground) :> IBrush
+        textBox.Foreground <- SolidColorBrush(colors.TextBoxForeground) :> IBrush
+        textBox.BorderBrush <- SolidColorBrush(colors.TextBoxBorder) :> IBrush
+        textBox.CaretBrush <- SolidColorBrush(colors.TextBoxForeground) :> IBrush
         textBox.SelectionBrush <- SolidColorBrush(Color.FromArgb(100uy, colors.Primary.R, colors.Primary.G, colors.Primary.B)) :> IBrush
-        textBox.SelectionForegroundBrush <- SolidColorBrush(colors.Surface) :> IBrush
+        textBox.SelectionForegroundBrush <- SolidColorBrush(colors.TextBoxBackground) :> IBrush
         
         // Add Enter key support to save preset
         textBox.KeyDown.Add(fun e ->
