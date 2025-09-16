@@ -1,6 +1,9 @@
 namespace DisplaySwitchPro
 
+open Avalonia
+open Avalonia.Controls
 open Avalonia.Media
+open Avalonia.Styling
 
 module Theme =
     
@@ -87,3 +90,144 @@ module Theme =
     
     let setTheme newTheme =
         currentTheme <- newTheme
+
+    // Convert Theme to Avalonia ThemeVariant
+    let toThemeVariant theme =
+        match theme with
+        | Light -> ThemeVariant.Light
+        | Dark -> ThemeVariant.Dark
+
+    // Convert Avalonia ThemeVariant to Theme
+    let fromThemeVariant (variant: ThemeVariant) =
+        if variant = ThemeVariant.Light then Light
+        elif variant = ThemeVariant.Dark then Dark
+        else Light // Default to Light for unknown variants
+
+    // Create brush resources from theme colors
+    let private createBrushResources (colors: ThemeColors) =
+        [
+            // Background colors
+            ("AppBackgroundBrush", SolidColorBrush(colors.Background) :> IBrush)
+            ("AppSurfaceBrush", SolidColorBrush(colors.Surface) :> IBrush)
+            ("AppCanvasBackgroundBrush", SolidColorBrush(colors.CanvasBg) :> IBrush)
+            ("AppCanvasBackgroundDarkBrush", SolidColorBrush(colors.CanvasBgDark) :> IBrush)
+
+            // Primary colors
+            ("AppPrimaryBrush", SolidColorBrush(colors.Primary) :> IBrush)
+            ("AppPrimaryDarkBrush", SolidColorBrush(colors.PrimaryDark) :> IBrush)
+            ("AppSecondaryBrush", SolidColorBrush(colors.Secondary) :> IBrush)
+            ("AppSecondaryDarkBrush", SolidColorBrush(colors.SecondaryDark) :> IBrush)
+
+            // Text colors
+            ("AppTextBrush", SolidColorBrush(colors.Text) :> IBrush)
+            ("AppTextSecondaryBrush", SolidColorBrush(colors.TextSecondary) :> IBrush)
+
+            // TextBox specific colors
+            ("AppTextBoxBackgroundBrush", SolidColorBrush(colors.TextBoxBackground) :> IBrush)
+            ("AppTextBoxForegroundBrush", SolidColorBrush(colors.TextBoxForeground) :> IBrush)
+            ("AppTextBoxBorderBrush", SolidColorBrush(colors.TextBoxBorder) :> IBrush)
+
+            // Border and state colors
+            ("AppBorderBrush", SolidColorBrush(colors.Border) :> IBrush)
+            ("AppDisabledBackgroundBrush", SolidColorBrush(colors.DisabledBg) :> IBrush)
+            ("AppDisabledBackgroundDarkBrush", SolidColorBrush(colors.DisabledBgDark) :> IBrush)
+
+            // Status colors
+            ("AppSuccessBrush", SolidColorBrush(colors.Success) :> IBrush)
+            ("AppErrorBrush", SolidColorBrush(colors.Error) :> IBrush)
+
+            // Derived colors for enhanced UI
+            ("AppPrimaryTransparentBrush", SolidColorBrush(Color.FromArgb(100uy, colors.Primary.R, colors.Primary.G, colors.Primary.B)) :> IBrush)
+            ("AppSurfaceTransparentBrush", SolidColorBrush(Color.FromArgb(90uy, colors.Surface.R, colors.Surface.G, colors.Surface.B)) :> IBrush)
+            ("AppBorderTransparentBrush", SolidColorBrush(Color.FromArgb(60uy, colors.Border.R, colors.Border.G, colors.Border.B)) :> IBrush)
+        ]
+
+    // Create a resource dictionary from theme colors
+    let private createResourceDictionary theme =
+        let colors = getThemeColors theme
+        let resources = createBrushResources colors
+        let dictionary = ResourceDictionary()
+
+        resources |> List.iter (fun (key, brush) ->
+            dictionary.Add(key, brush))
+
+        dictionary
+
+    // Initialize theme resources for the application
+    let initializeThemeResources (app: Application) =
+        try
+            // Create light and dark resource dictionaries
+            let lightResources = createResourceDictionary Light
+            let darkResources = createResourceDictionary Dark
+
+            // Create main resource dictionary with theme dictionaries
+            let mainDict = ResourceDictionary()
+
+            // Add light theme resources
+            mainDict.ThemeDictionaries.Add(ThemeVariant.Light, lightResources)
+
+            // Add dark theme resources
+            mainDict.ThemeDictionaries.Add(ThemeVariant.Dark, darkResources)
+
+            // Add to application resources
+            app.Resources.MergedDictionaries.Add(mainDict)
+
+            // Set initial theme based on current theme
+            let initialTheme = currentTheme
+            let themeVariant = toThemeVariant initialTheme
+
+            app.RequestedThemeVariant <- themeVariant
+
+            Logging.logNormalf "Initialized Avalonia theme resources with %A theme" initialTheme
+
+        with
+        | ex ->
+            Logging.logErrorf "Failed to initialize theme resources: %s" ex.Message
+            Logging.logErrorf "Stack trace: %s" ex.StackTrace
+
+    // Switch theme variant and update resources
+    let private switchThemeVariant (app: Application) theme =
+        try
+            let themeVariant = toThemeVariant theme
+
+            // Update Avalonia's requested theme variant
+            app.RequestedThemeVariant <- themeVariant
+
+            Logging.logNormalf "Switched to %A theme variant" theme
+
+        with
+        | ex ->
+            Logging.logErrorf "Failed to switch theme variant: %s" ex.Message
+
+    // Switch theme with Avalonia integration
+    let switchTheme () =
+        let newTheme = toggleTheme()
+
+        // Update Avalonia theme if application is available
+        try
+            match Application.Current with
+            | null ->
+                Logging.logVerbose "No Avalonia application instance found for theme switching"
+            | app ->
+                switchThemeVariant app newTheme
+                Logging.logVerbosef "Theme switched to %A with Avalonia integration" newTheme
+        with
+        | ex ->
+            Logging.logErrorf "Error switching Avalonia theme: %s" ex.Message
+
+        newTheme
+
+    // Set theme with Avalonia integration
+    let setThemeWithAvalonia newTheme =
+        setTheme newTheme
+
+        try
+            match Application.Current with
+            | null ->
+                Logging.logVerbose "No Avalonia application instance found for theme setting"
+            | app ->
+                switchThemeVariant app newTheme
+                Logging.logVerbosef "Theme set to %A with Avalonia integration" newTheme
+        with
+        | ex ->
+            Logging.logErrorf "Error setting Avalonia theme: %s" ex.Message

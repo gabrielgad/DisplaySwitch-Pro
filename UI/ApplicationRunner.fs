@@ -20,6 +20,11 @@ module ApplicationRunner =
         
         override this.Initialize() =
             this.Styles.Add(FluentTheme())
+
+            // Initialize theme resources
+            Theme.initializeThemeResources this
+
+            Logging.logNormal "Avalonia application initialized with theme support"
         
         override this.OnFrameworkInitializationCompleted() =
             match this.ApplicationLifetime with

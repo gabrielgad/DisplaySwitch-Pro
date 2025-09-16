@@ -558,7 +558,10 @@ module MainContentPanel =
         themeToggleButton.BorderThickness <- Thickness(0.0)
         ToolTip.SetTip(themeToggleButton, "Toggle between light and dark theme")
         themeToggleButton.Click.Add(fun _ ->
-            Theme.toggleTheme() |> ignore
+            Theme.switchTheme() |> ignore
+            // Update button text immediately to reflect the change
+            themeToggleButton.Content <- if Theme.currentTheme = Theme.Light then "🌙 Dark" else "☀️ Light"
+            // Refresh the main window content to apply the new theme colors
             refreshMainWindowContent ()
         )
         DockPanel.SetDock(themeToggleButton, Dock.Left)
