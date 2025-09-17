@@ -9,6 +9,8 @@ open DisplayConfigurationAPI
 open CCDPathManagement
 open DisplayDetection
 open ResultBuilder
+open WindowsAPIResult
+open StrategyPerformance
 
 // Enhanced error types for display operations
 type DisplayError = 
@@ -1095,3 +1097,123 @@ module DisplayControl =
         let batchResult = createBatchResult (List.ofSeq successes) (List.ofSeq failures)
         Logging.logVerbosef " Batch orientation changes completed: %d successes, %d failures" batchResult.Successes.Length batchResult.Failures.Length
         Ok batchResult
+
+    /// Enhanced logging and diagnostics module (additive - doesn't change existing APIs)
+    module EnhancedDiagnostics =
+
+        /// Enable strategy performance tracking with logging
+        let enablePerformanceTracking () =
+            if not (StrategyPerformance.isTrackingEnabled ()) then
+                StrategyPerformance.enableTracking (Some 500) (Some 10)
+                Logging.logVerbosef " ✓ Strategy performance tracking enabled"
+            else
+                Logging.logVerbosef " ✓ Strategy performance tracking already enabled"
+
+        /// Generate enhanced strategy performance report
+        let generateStrategyReport () =
+            if StrategyPerformance.isTrackingEnabled () then
+                let report = StrategyPerformance.generatePerformanceReport ()
+                let insights = StrategyPerformance.getPerformanceInsights ()
+
+                Logging.logVerbosef " === Strategy Performance Report ==="
+                report.Split('\n') |> Array.iter (fun line ->
+                    if not (String.IsNullOrWhiteSpace line) then
+                        Logging.logVerbosef " %s" line)
+
+                if not insights.IsEmpty then
+                    Logging.logVerbosef " === Performance Insights ==="
+                    insights |> List.iter (fun insight -> Logging.logVerbosef " • %s" insight)
+
+                report
+            else
+                let msg = "Performance tracking is disabled. Call EnablePerformanceTracking() first."
+                Logging.logVerbosef " %s" msg
+                msg
+
+        /// Enhanced error diagnostics for display operations
+        let diagnoseDisplayError displayId error =
+            let diagnostics = System.Text.StringBuilder()
+            diagnostics.AppendLine(sprintf "=== Display Operation Diagnostics for %s ===" displayId) |> ignore
+            diagnostics.AppendLine(sprintf "Error: %s" error) |> ignore
+            diagnostics.AppendLine(sprintf "Timestamp: %s" (DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"))) |> ignore
+
+            // Check display connectivity
+            try
+                let connectedDisplays = DisplayDetection.getConnectedDisplays()
+                let targetDisplay = connectedDisplays |> List.tryFind (fun d -> d.Id = displayId)
+
+                match targetDisplay with
+                | Some display ->
+                    diagnostics.AppendLine(sprintf "Display Status: Connected, Enabled=%b, Primary=%b" display.IsEnabled display.IsPrimary) |> ignore
+                    diagnostics.AppendLine(sprintf "Resolution: %dx%d @ %dHz" display.Resolution.Width display.Resolution.Height display.Resolution.RefreshRate) |> ignore
+                    diagnostics.AppendLine(sprintf "Position: (%d, %d)" display.Position.X display.Position.Y) |> ignore
+                | None ->
+                    diagnostics.AppendLine("Display Status: Not found in connected displays") |> ignore
+
+                diagnostics.AppendLine(sprintf "Total connected displays: %d" connectedDisplays.Length) |> ignore
+            with
+            | ex ->
+                diagnostics.AppendLine(sprintf "Error checking display status: %s" ex.Message) |> ignore
+
+            // Enhanced error classification
+            let errorClassification =
+                if error.Contains("Access denied") || error.Contains("permission") then
+                    "PERMISSION_ERROR: Run as administrator and ensure no other display management software is running"
+                elif error.Contains("Invalid parameter") || error.Contains("87") then
+                    "CONFIGURATION_ERROR: The display configuration is invalid - check resolution and refresh rate settings"
+                elif error.Contains("Device not found") || error.Contains("1169") then
+                    "HARDWARE_ERROR: Display may be disconnected or driver issues - check cables and update drivers"
+                elif error.Contains("timeout") || error.Contains("not responding") then
+                    "TIMEOUT_ERROR: Display hardware is slow to respond - this is often normal for TVs and some monitors"
+                elif error.Contains("Resource in use") || error.Contains("170") then
+                    "RESOURCE_ERROR: Display is busy - wait a moment and try again, or close other display software"
+                else
+                    "GENERAL_ERROR: Check Windows Event Viewer for more details"
+
+            diagnostics.AppendLine(sprintf "Error Classification: %s" errorClassification) |> ignore
+
+            let result = diagnostics.ToString()
+            Logging.logVerbosef "%s" result
+            result
+
+        /// Log strategy execution with enhanced details
+        let logStrategyExecution strategy displayId result duration =
+            match result with
+            | Ok _ ->
+                Logging.logVerbosef " ✓ SUCCESS: Strategy %A completed in %.0fms for %s"
+                    strategy duration displayId
+
+                if StrategyPerformance.isTrackingEnabled () then
+                    let stats = StrategyPerformance.getStrategyStats strategy
+                    if stats.TotalAttempts > 1 then
+                        Logging.logVerbosef "   Strategy performance: %.1f%% success rate (%.0fms avg)"
+                            stats.SuccessRate stats.AverageDuration.TotalMilliseconds
+            | Error errorMsg ->
+                Logging.logVerbosef " ✗ FAILED: Strategy %A failed after %.0fms for %s: %s"
+                    strategy duration displayId errorMsg
+
+                // Generate diagnostics for failures
+                let _ = diagnoseDisplayError displayId errorMsg
+
+                if StrategyPerformance.isTrackingEnabled () then
+                    let stats = StrategyPerformance.getStrategyStats strategy
+                    if stats.TotalAttempts > 1 then
+                        Logging.logVerbosef "   Strategy history: %.1f%% success rate (%d attempts)"
+                            stats.SuccessRate stats.TotalAttempts
+
+        /// Enhanced validation with confidence scoring
+        let validateDisplayStateWithConfidence displayId expectedState =
+            match validateDisplayState displayId expectedState with
+            | Ok validationResult ->
+                let confidence =
+                    if validationResult.ValidationAttempts = 1 then 95
+                    elif validationResult.ValidationAttempts <= 3 then 85
+                    else 70
+
+                Logging.logVerbosef " ✓ Display validation: %s state=%b (confidence: %d%%)"
+                    displayId validationResult.IsEnabled confidence
+
+                Ok (validationResult, confidence)
+            | Error errorMsg ->
+                Logging.logVerbosef " ✗ Display validation failed: %s" errorMsg
+                Error errorMsg

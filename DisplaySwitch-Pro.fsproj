@@ -24,6 +24,9 @@
     <!-- API Domain - Display operations -->
     <!-- Windows Platform APIs -->
     <Compile Include="API/Windows/WindowsAPI.fs" />
+    <!-- Enhanced error handling and performance tracking -->
+    <Compile Include="API/Windows/WindowsAPIResult.fs" />
+    <Compile Include="API/Windows/StrategyPerformance.fs" />
     <!-- Algorithm modules (dependencies first) -->
     <Compile Include="API/Windows/WMIHardwareDetection.fs" />
     <Compile Include="API/Windows/MonitorBoundsDetection.fs" />

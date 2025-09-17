@@ -4,6 +4,7 @@ open System
 open WindowsAPI
 open CCDTargetMapping
 open ResultBuilder
+open WindowsAPIResult
 
 /// CCD (Connecting and Configuring Displays) Path Management algorithm
 /// Provides path discovery, enumeration, and management for display configuration
@@ -421,3 +422,150 @@ module CCDPathManagement =
 
             return pathInfos
         }
+
+    /// Enhanced error reporting helpers (additive - doesn't break existing APIs)
+    module EnhancedErrorReporting =
+
+        /// Enhanced error classification for CCD path operations
+        let classifyPathError (errorCode: uint32) (operation: string) (context: string) =
+            match errorCode with
+            | 0u -> sprintf "Success in %s (%s)" operation context
+            | 87u -> sprintf "Invalid parameter in %s - display configuration may be invalid (%s)" operation context
+            | 1004u -> sprintf "Invalid flags in %s - unsupported configuration options (%s)" operation context
+            | 1169u -> sprintf "Device not found in %s - display may be disconnected (%s)" operation context
+            | 1359u -> sprintf "Internal error in %s - driver or system issue (%s)" operation context
+            | 6u -> sprintf "Invalid handle in %s - display adapter issue (%s)" operation context
+            | 170u -> sprintf "Resource in use in %s - display may be busy (%s)" operation context
+            | 1450u -> sprintf "Insufficient system resources in %s (%s)" operation context
+            | _ -> sprintf "CCD API error %u in %s (%s)" errorCode operation context
+
+        /// Get diagnostic information for path finding failures
+        let getDiagnosticInfo displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
+            let diagnostics = System.Text.StringBuilder()
+            diagnostics.AppendLine(sprintf "=== Path Finding Diagnostics for %s ===" displayId) |> ignore
+            diagnostics.AppendLine(sprintf "Total paths available: %d" pathCount) |> ignore
+
+            // Show path summary
+            let activePaths = paths |> Array.take (int pathCount) |> Array.filter (fun p -> p.flags <> 0u)
+            let inactivePaths = paths |> Array.take (int pathCount) |> Array.filter (fun p -> p.flags = 0u)
+            diagnostics.AppendLine(sprintf "Active paths: %d, Inactive paths: %d" activePaths.Length inactivePaths.Length) |> ignore
+
+            // Show source ID distribution
+            let sourceIds = paths |> Array.take (int pathCount) |> Array.map (fun p -> p.sourceInfo.id) |> Array.distinct
+            diagnostics.AppendLine(sprintf "Available source IDs: %s" (sourceIds |> Array.map string |> String.concat ", ")) |> ignore
+
+            // Show target ID distribution
+            let targetIds = paths |> Array.take (int pathCount) |> Array.map (fun p -> p.targetInfo.id) |> Array.distinct
+            diagnostics.AppendLine(sprintf "Available target IDs: %s" (targetIds |> Array.map string |> String.concat ", ")) |> ignore
+
+            // Show display number parsing result
+            match parseDisplayNumber displayId with
+            | Some displayNum ->
+                diagnostics.AppendLine(sprintf "Parsed display number: %d (looking for source ID %d)" displayNum (displayNum - 1)) |> ignore
+                let expectedSourceId = uint32 (displayNum - 1)
+                let pathsWithExpectedSource = paths |> Array.take (int pathCount) |> Array.filter (fun p -> p.sourceInfo.id = expectedSourceId)
+                diagnostics.AppendLine(sprintf "Paths with expected source ID %u: %d" expectedSourceId pathsWithExpectedSource.Length) |> ignore
+            | None ->
+                diagnostics.AppendLine(sprintf "Could not parse display number from '%s'" displayId) |> ignore
+
+            diagnostics.ToString()
+
+        /// Enhanced error message for path finding failures
+        let createEnhancedPathError displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) originalError =
+            let diagnostics = getDiagnosticInfo displayId paths pathCount
+            sprintf "%s\n\nDiagnostic Information:\n%s" originalError diagnostics
+
+        /// Validate path array integrity and provide detailed feedback
+        let validatePathArrayIntegrity (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
+            let issues = System.Collections.Generic.List<string>()
+
+            if int pathCount = 0 then
+                issues.Add("No paths found in system")
+            elif int pathCount > paths.Length then
+                issues.Add(sprintf "Path count %d exceeds array length %d" pathCount paths.Length)
+            else
+                let actualPaths = paths |> Array.take (int pathCount)
+
+                // Check for all-zero paths
+                let zeroSourcePaths = actualPaths |> Array.filter (fun p -> p.sourceInfo.id = 0u && p.sourceInfo.adapterId.LowPart = 0u)
+                if zeroSourcePaths.Length = actualPaths.Length then
+                    issues.Add("All paths have zero source information")
+
+                let zeroTargetPaths = actualPaths |> Array.filter (fun p -> p.targetInfo.id = 0u && p.targetInfo.adapterId.LowPart = 0u)
+                if zeroTargetPaths.Length = actualPaths.Length then
+                    issues.Add("All paths have zero target information")
+
+                // Check for duplicate source IDs in active paths
+                let activePaths = actualPaths |> Array.filter (fun p -> p.flags <> 0u)
+                let activeSourceIds = activePaths |> Array.map (fun p -> p.sourceInfo.id)
+                let duplicateSourceIds = activeSourceIds |> Array.groupBy id |> Array.filter (fun (_, group) -> group.Length > 1) |> Array.map fst
+                if duplicateSourceIds.Length > 0 then
+                    issues.Add(sprintf "Duplicate active source IDs found: %s" (duplicateSourceIds |> Array.map string |> String.concat ", "))
+
+            if issues.Count = 0 then
+                Ok "Path array integrity validated successfully"
+            else
+                Error (String.concat "; " issues)
+
+    /// Optional enhanced versions of existing functions (for gradual migration)
+    module EnhancedVersions =
+
+        /// Enhanced version of getDisplayPaths with better error reporting
+        let getDisplayPathsWithDiagnostics includeInactive =
+            match getDisplayPaths includeInactive with
+            | Ok (pathArray, modeArray, pathCount, modeCount) ->
+                // Validate integrity and add diagnostics
+                match EnhancedErrorReporting.validatePathArrayIntegrity pathArray pathCount with
+                | Ok validationMessage ->
+                    Logging.logVerbosef " Path validation: %s" validationMessage
+                    Ok (pathArray, modeArray, pathCount, modeCount)
+                | Error validationError ->
+                    Logging.logVerbosef " Path validation failed: %s" validationError
+                    // Still return the result but log the validation issue
+                    Ok (pathArray, modeArray, pathCount, modeCount)
+            | Error originalError ->
+                let enhancedError = sprintf "%s (Use getDisplayPathsWithDiagnostics for more details)" originalError
+                Error enhancedError
+
+        /// Enhanced version of findDisplayPathBySourceId with detailed diagnostics
+        let findDisplayPathBySourceIdWithDiagnostics displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
+            match findDisplayPathBySourceId displayId paths pathCount with
+            | Ok result -> Ok result
+            | Error originalError ->
+                let enhancedError = EnhancedErrorReporting.createEnhancedPathError displayId paths pathCount originalError
+                Logging.logVerbosef " Enhanced path finding error: %s" enhancedError
+                Error enhancedError
+
+        /// Enhanced version with confidence scoring
+        let findDisplayPathWithConfidence displayId (paths: DISPLAYCONFIG_PATH_INFO[]) (pathCount: uint32) =
+            match findDisplayPathBySourceId displayId paths pathCount with
+            | Ok (path, index) ->
+                // Calculate confidence score based on multiple factors
+                let mutable confidence = 0
+
+                // Factor 1: Source ID exact match (50 points)
+                match parseDisplayNumber displayId with
+                | Some displayNum when int path.sourceInfo.id = (displayNum - 1) -> confidence <- confidence + 50
+                | _ -> ()
+
+                // Factor 2: Target ID mapping match (30 points)
+                let targetId = resolveTargetIdForDisplay displayId |> Option.defaultValue 0u
+                if targetId <> 0u && path.targetInfo.id = targetId then
+                    confidence <- confidence + 30
+
+                // Factor 3: Path is active (20 points)
+                if path.flags <> 0u then
+                    confidence <- confidence + 20
+
+                let confidenceLevel =
+                    match confidence with
+                    | c when c >= 80 -> "High"
+                    | c when c >= 50 -> "Medium"
+                    | c when c >= 20 -> "Low"
+                    | _ -> "Very Low"
+
+                Logging.logVerbosef " Path found for %s with %s confidence (score: %d/100)" displayId confidenceLevel confidence
+                Ok ((path, index), confidence, confidenceLevel)
+            | Error originalError ->
+                let enhancedError = EnhancedErrorReporting.createEnhancedPathError displayId paths pathCount originalError
+                Error enhancedError
