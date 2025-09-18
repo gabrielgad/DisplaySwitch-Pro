@@ -46,6 +46,12 @@
     
     <!-- UI Domain - User interface -->
     <Compile Include="UI/Theme.fs" />
+    <!-- Enhanced UI Architecture - Event-driven and unified state management -->
+    <Compile Include="UI/UIEventSystem.fs" />
+    <Compile Include="UI/UIStateManager.fs" />
+    <Compile Include="UI/UIEventComposition.fs" />
+    <Compile Include="UI/UIStateBridge.fs" />
+    <!-- Existing UI components (backward compatible) -->
     <Compile Include="UI/UIComponents.fs" />
     <Compile Include="UI/DisplayCanvas.fs" />
     <Compile Include="UI/UIState.fs" />
