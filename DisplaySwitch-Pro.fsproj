@@ -20,6 +20,9 @@
     <Compile Include="Core/ResultBuilder.fs" />
     <Compile Include="Core/Logging.fs" />
     <Compile Include="AppState.fs" />
+
+    <!-- Phase 5: Application State - Lifecycle & Configuration Management -->
+    <!-- Integrated into Program.fs with Phase5Demo module for working build -->
     
     <!-- API Domain - Display operations -->
     <!-- Windows Platform APIs -->
