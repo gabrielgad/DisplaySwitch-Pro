@@ -34,7 +34,7 @@ module Phase5Demo =
         phase5Metadata <- {
             phase5Metadata with
                 OperationCount = phase5Metadata.OperationCount + 1
-                Events = eventName :: (List.take 9 phase5Metadata.Events)
+                Events = eventName :: (phase5Metadata.Events |> List.truncate 9)
         }
         Logging.logVerbosef "Phase 5 Event: %s (#%d)" eventName phase5Metadata.OperationCount
 
