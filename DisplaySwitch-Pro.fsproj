@@ -15,6 +15,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Assets -->
+    <AvaloniaResource Include="Assets/app-icon.png" />
+    <AvaloniaResource Include="Assets/app-icon-new.png" />
+    <AvaloniaResource Include="Assets/app-logo.png" />
+    <!-- Copy ICO file to output for Windows Shell_NotifyIcon -->
+    <Content Include="Assets/app-icon-new.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Core Domain - Base types and utilities -->
     <Compile Include="Core/Types.fs" />
     <Compile Include="Core/ResultBuilder.fs" />
@@ -51,6 +62,8 @@
     <Compile Include="UI/Theme.fs" />
     <!-- Enhanced UI Architecture - Event-driven and unified state management -->
     <Compile Include="UI/UIEventSystem.fs" />
+    <!-- System Tray Management -->
+    <Compile Include="UI/TraySystem.fs" />
     <Compile Include="UI/UIStateManager.fs" />
     <Compile Include="UI/UIEventComposition.fs" />
     <Compile Include="UI/UIStateBridge.fs" />
@@ -62,7 +75,7 @@
     <Compile Include="UI/WindowManager.fs" />
     <Compile Include="UI/GUI.fs" />
     <Compile Include="UI/ApplicationRunner.fs" />
-    
+
     <!-- Tests and Entry Point -->
     <!-- <Compile Include="Tests.fs" /> Temporarily disabled during ECS removal -->
     <Compile Include="Program.fs" />

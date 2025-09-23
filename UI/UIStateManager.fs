@@ -14,6 +14,8 @@ module UIStateManager =
         UISettings: UISettings
         Theme: Theme.Theme
         WindowState: WindowState
+        TrayState: TraySystem.TrayApplicationState option
+        TraySettings: TraySystem.TraySettings
         EventLog: UIEventSystem.UIEvent list
         LastUpdate: DateTime
         Adapter: IPlatformAdapter option
@@ -34,6 +36,8 @@ module UIStateManager =
         CurrentDialogDisplay: DisplayInfo option
         IsWindowMinimized: bool
         IsWindowMaximized: bool
+        IsVisible: bool
+        IsInTray: bool
     }
 
     // Default instances
@@ -52,6 +56,8 @@ module UIStateManager =
         CurrentDialogDisplay = None
         IsWindowMinimized = false
         IsWindowMaximized = false
+        IsVisible = true
+        IsInTray = false
     }
 
     let empty = {
@@ -59,6 +65,8 @@ module UIStateManager =
         UISettings = defaultUISettings
         Theme = Theme.Light
         WindowState = defaultWindowState
+        TrayState = None
+        TraySettings = TraySystem.defaultTraySettings
         EventLog = []
         LastUpdate = DateTime.MinValue
         Adapter = None
@@ -202,6 +210,9 @@ module UIStateManager =
         let getCurrentDialogDisplay() = (getModel()).WindowState.CurrentDialogDisplay
         let getCurrentTheme() = (getModel()).Theme
         let getUISettings() = (getModel()).UISettings
+        let getTrayState() = (getModel()).TrayState
+        let getTraySettings() = (getModel()).TraySettings
+        let getWindowState() = (getModel()).WindowState
 
 
 
@@ -263,6 +274,33 @@ module UIStateManager =
             with ex ->
                 Error (sprintf "Failed to update theme: %s" ex.Message)
 
+        // Update tray state
+        let updateTrayState (trayState: TraySystem.TrayApplicationState option) : UIEventSystem.UIResult<UIModel> =
+            try
+                let newModel = StateManager.updateModelWith (fun model ->
+                    { model with TrayState = trayState })
+                Ok newModel
+            with ex ->
+                Error (sprintf "Failed to update tray state: %s" ex.Message)
+
+        // Update tray settings
+        let updateTraySettings (settings: TraySystem.TraySettings) : UIEventSystem.UIResult<UIModel> =
+            try
+                let newModel = StateManager.updateModelWith (fun model ->
+                    { model with TraySettings = settings })
+                Ok newModel
+            with ex ->
+                Error (sprintf "Failed to update tray settings: %s" ex.Message)
+
+        // Update window state for tray operations
+        let updateWindowStateForTray (updateFunc: WindowState -> WindowState) : UIEventSystem.UIResult<UIModel> =
+            try
+                let newModel = StateManager.updateModelWith (fun model ->
+                    { model with WindowState = updateFunc model.WindowState })
+                Ok newModel
+            with ex ->
+                Error (sprintf "Failed to update window state for tray: %s" ex.Message)
+
     // Backward compatibility layer for existing code
     module BackwardCompatibility =
 
@@ -288,6 +326,15 @@ module UIStateManager =
         let getMainWindow() = StateManager.getMainWindow()
         let getDisplaySettingsDialog() = StateManager.getDisplaySettingsDialog()
         let getCurrentDialogDisplay() = StateManager.getCurrentDialogDisplay()
+        let getTrayState() = StateManager.getTrayState()
+        let getTraySettings() = StateManager.getTraySettings()
+
+        // Tray management functions
+        let updateTrayState (trayState: TraySystem.TrayApplicationState option) : unit =
+            StateUpdates.updateTrayState trayState |> ignore
+
+        let updateTraySettings (settings: TraySystem.TraySettings) : unit =
+            StateUpdates.updateTraySettings settings |> ignore
 
     // Diagnostic and monitoring functions
     module Diagnostics =
@@ -300,6 +347,10 @@ module UIStateManager =
             CurrentTheme = (StateManager.getModel()).Theme.ToString()
             ConnectedDisplayCount = (StateManager.getModel()).AppState.ConnectedDisplays.Count
             SavedPresetCount = (StateManager.getModel()).AppState.SavedPresets.Count
+            HasTrayState = (StateManager.getModel()).TrayState.IsSome
+            TrayEnabled = (StateManager.getModel()).TraySettings.EnableSystemTray
+            WindowVisible = (StateManager.getModel()).WindowState.IsVisible
+            WindowInTray = (StateManager.getModel()).WindowState.IsInTray
         |}
 
         let getRecentEvents (count: int) : UIEventSystem.UIEvent list =
@@ -307,5 +358,7 @@ module UIStateManager =
 
         let logCurrentState() =
             let info = getStateInfo()
-            Logging.logNormal (sprintf "UI State - Displays: %d, Presets: %d, Theme: %s, Last Update: %A"
-                info.ConnectedDisplayCount info.SavedPresetCount info.CurrentTheme info.ModelTimestamp)
+            Logging.logNormal (sprintf "UI State - Displays: %d, Presets: %d, Theme: %s, Tray: %b, Window: %s, Last Update: %A"
+                info.ConnectedDisplayCount info.SavedPresetCount info.CurrentTheme info.TrayEnabled
+                (if info.WindowVisible then "Visible" else if info.WindowInTray then "In Tray" else "Hidden")
+                info.ModelTimestamp)

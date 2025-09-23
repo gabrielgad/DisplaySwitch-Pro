@@ -7,6 +7,7 @@ open System.Threading
 /// This module replaces mutable references with functional event publishing
 module UIEventSystem =
 
+
     // Core UI events that drive the application
     type UIEvent =
         | RefreshMainWindow
@@ -23,6 +24,7 @@ module UIEventSystem =
         | ErrorOccurred of ErrorMessage: string
         | UIInitialized
         | UIShutdown
+
 
     // Messages that flow through the system
     type UIMessage =
@@ -140,6 +142,7 @@ module UIEventSystem =
 
         let updateConfiguration config =
             publishUIMessage (ConfigurationChanged config)
+
 
         // Get diagnostic information
         let getDiagnostics() = {|

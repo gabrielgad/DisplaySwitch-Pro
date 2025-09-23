@@ -39,6 +39,7 @@ module ApplicationState =
         MainWindow: obj option  // Avalonia Window
         DisplaySettingsDialog: obj option  // Avalonia Window
         CurrentDialogDisplay: DisplayInfo option
+        TrayState: TrayApplicationState option
         LastUIUpdate: DateTime
     }
 
@@ -136,7 +137,50 @@ module ApplicationState =
         Y: float
         IsMaximized: bool
         IsMinimized: bool
+        IsVisible: bool
     }
+
+    /// System tray application state
+    and TrayApplicationState = {
+        IsVisible: bool
+        TrayIcon: obj option                    // Avalonia TrayIcon instance
+        RecentPresets: string list             // Last 5 used presets for quick access
+        QuickActions: TrayAction list          // Dynamic menu items
+        NotificationSettings: TrayNotificationSettings
+        LastTrayInteraction: DateTime
+        MenuUpdateCount: int                   // For tracking menu refreshes
+    }
+
+    and TrayAction = {
+        Label: string
+        Action: TrayActionType
+        IsEnabled: bool
+        Shortcut: string option               // Display shortcut text (e.g., "Ctrl+1")
+        Icon: string option                   // Optional icon name
+        SortOrder: int                        // Menu ordering
+    }
+
+    and TrayActionType =
+        | ShowMainWindow
+        | ApplyPreset of presetName: string
+        | RefreshDisplays
+        | OpenSettings
+        | ExitApplication
+        | Separator                           // Menu separator
+
+    and TrayNotificationSettings = {
+        ShowPresetNotifications: bool         // Show notifications when presets applied
+        NotificationDuration: TimeSpan        // How long notifications stay visible
+        Position: NotificationPosition        // Where notifications appear
+        ShowSuccessOnly: bool                 // Only show successful operations
+    }
+
+    and NotificationPosition =
+        | Default                             // System default
+        | TopRight
+        | TopLeft
+        | BottomRight
+        | BottomLeft
 
     and CanvasTransformParams = {
         ZoomLevel: float
@@ -263,6 +307,22 @@ module ApplicationState =
         | ConfigurationValidated of isValid: bool * errors: string list * timestamp: DateTime
         | ConfigurationReloaded of timestamp: DateTime
 
+        // Tray events
+        | TrayIconClicked of timestamp: DateTime
+        | TrayIconDoubleClicked of timestamp: DateTime
+        | TrayMenuItemSelected of action: TrayActionType * timestamp: DateTime
+        | TrayMenuOpened of timestamp: DateTime
+        | TrayMenuClosed of timestamp: DateTime
+        | WindowMinimizedToTray of timestamp: DateTime
+        | WindowRestoredFromTray of timestamp: DateTime
+        | WindowHiddenToTray of timestamp: DateTime
+        | WindowShownFromTray of timestamp: DateTime
+        | TrayNotificationShown of message: string * duration: TimeSpan * timestamp: DateTime
+        | TrayNotificationClicked of timestamp: DateTime
+        | TrayNotificationTimedOut of timestamp: DateTime
+        | TrayPresetApplied of presetName: string * success: bool * timestamp: DateTime
+        | TrayPresetApplicationFailed of presetName: string * error: string * timestamp: DateTime
+
     // ===== Default Values =====
 
     /// Default application configuration with sensible defaults
@@ -307,6 +367,7 @@ module ApplicationState =
             MainWindow = None
             DisplaySettingsDialog = None
             CurrentDialogDisplay = None
+            TrayState = None
             LastUIUpdate = DateTime.Now
         }
         Cache = {
@@ -546,27 +607,31 @@ module ApplicationState =
                     LastSuccessfulConfiguration = state.Core.LastSuccessfulConfiguration
                     LastUpdate = legacyState.LastUpdate
                 }
-                Metadata = { state.Metadata with
-                    LastModified = DateTime.Now
-                    StateChangeCount = state.Metadata.StateChangeCount + 1L } }
+                Metadata =
+                    { state.Metadata with
+                        LastModified = DateTime.Now
+                        StateChangeCount = state.Metadata.StateChangeCount + 1L } }
 
         /// Legacy function adapters for seamless migration
         let updateDisplays displays state =
-            let coreState = { state.Core with
-                ConnectedDisplays = displays |> List.fold (fun acc d -> Map.add d.Id d acc) Map.empty
-                LastUpdate = DateTime.Now }
+            let coreState =
+                { state.Core with
+                    ConnectedDisplays = displays |> List.fold (fun acc d -> Map.add d.Id d acc) Map.empty
+                    LastUpdate = DateTime.Now }
             Transforms.updateCore coreState state
 
         let savePreset name config state =
             let namedConfig = { config with Name = name; CreatedAt = DateTime.Now }
-            let coreState = { state.Core with
-                SavedPresets = Map.add name namedConfig state.Core.SavedPresets
-                LastUpdate = DateTime.Now }
+            let coreState =
+                { state.Core with
+                    SavedPresets = Map.add name namedConfig state.Core.SavedPresets
+                    LastUpdate = DateTime.Now }
             Transforms.updateCore coreState state
 
         let setCurrentConfiguration config state =
-            let coreState = { state.Core with
-                CurrentConfiguration = Some config
-                LastSuccessfulConfiguration = Some config
-                LastUpdate = DateTime.Now }
+            let coreState =
+                { state.Core with
+                    CurrentConfiguration = Some config
+                    LastSuccessfulConfiguration = Some config
+                    LastUpdate = DateTime.Now }
             Transforms.updateCore coreState state

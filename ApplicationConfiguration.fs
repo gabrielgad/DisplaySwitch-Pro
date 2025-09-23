@@ -20,6 +20,7 @@ module ApplicationConfiguration =
         DisplayDetectionSettings: DisplayDetectionSettings
         UIPreferences: UIPreferences
         AdvancedSettings: AdvancedSettings
+        TraySettings: TraySettings
         LastModified: DateTime
         Version: string
     }
@@ -92,6 +93,40 @@ module ApplicationConfiguration =
         | LowLatency
         | HighThroughput
 
+    /// System tray settings and configuration
+    and TraySettings = {
+        EnableSystemTray: bool                // Master enable/disable
+        StartMinimized: bool                  // Start application minimized to tray
+        MinimizeToTray: bool                  // Minimize sends to tray instead of taskbar
+        CloseToTray: bool                     // Close button sends to tray instead of exit
+        ShowTrayNotifications: bool           // Enable tray notifications
+        MaxRecentPresets: int                 // Number of recent presets in tray menu (default: 5)
+        AutoHideMainWindow: bool              // Hide main window after preset selection
+        TrayClickAction: TrayClickAction      // Action for single-click on tray icon
+        DoubleClickAction: TrayClickAction    // Action for double-click on tray icon
+        NotificationSettings: TrayNotificationSettings
+    }
+
+    and TrayClickAction =
+        | ShowMainWindow                      // Restore main window
+        | ShowTrayMenu                        // Show context menu
+        | ApplyLastPreset                     // Apply most recently used preset
+        | DoNothing                           // No action
+
+    and TrayNotificationSettings = {
+        ShowPresetNotifications: bool         // Show notifications when presets applied
+        NotificationDuration: TimeSpan        // How long notifications stay visible
+        Position: TrayNotificationPosition    // Where notifications appear
+        ShowSuccessOnly: bool                 // Only show successful operations
+    }
+
+    and TrayNotificationPosition =
+        | Default                             // System default
+        | TopRight
+        | TopLeft
+        | BottomRight
+        | BottomLeft
+
     /// Configuration validation results
     type ValidationResult = {
         IsValid: bool
@@ -142,7 +177,7 @@ module ApplicationConfiguration =
 
     and MigrationAction =
         | RenameProperty of oldName: string * newName: string
-        | ChangePropertyType of propertyName: string * converter: obj -> obj
+        | ChangePropertyType of propertyName: string * converter: (obj -> obj)
         | AddProperty of propertyName: string * defaultValue: obj
         | RemoveProperty of propertyName: string
         | CustomMigration of (JsonElement -> JsonElement)
@@ -199,6 +234,23 @@ module ApplicationConfiguration =
             }
             ExperimentalFeatures = Set.empty
             CustomHotkeys = Map.empty
+        }
+        TraySettings = {
+            EnableSystemTray = true
+            StartMinimized = false
+            MinimizeToTray = true
+            CloseToTray = true
+            ShowTrayNotifications = true
+            MaxRecentPresets = 5
+            AutoHideMainWindow = false
+            TrayClickAction = ShowMainWindow
+            DoubleClickAction = ShowMainWindow
+            NotificationSettings = {
+                ShowPresetNotifications = true
+                NotificationDuration = TimeSpan.FromSeconds(3.0)
+                Position = Default
+                ShowSuccessOnly = false
+            }
         }
         LastModified = DateTime.Now
         Version = "1.0.0"
@@ -302,12 +354,33 @@ module ApplicationConfiguration =
                     }
             ]
 
+        let validateTraySettings (settings: TraySettings) : ValidationError list =
+            [
+                if settings.MaxRecentPresets < 1 || settings.MaxRecentPresets > 10 then
+                    yield {
+                        Property = "MaxRecentPresets"
+                        Message = "Max recent presets must be between 1 and 10"
+                        Severity = Medium
+                        SuggestedFix = Some "Set to 5 (default)"
+                    }
+
+                if settings.NotificationSettings.NotificationDuration < TimeSpan.FromSeconds(1.0) ||
+                   settings.NotificationSettings.NotificationDuration > TimeSpan.FromSeconds(30.0) then
+                    yield {
+                        Property = "NotificationDuration"
+                        Message = "Notification duration must be between 1 and 30 seconds"
+                        Severity = Medium
+                        SuggestedFix = Some "Set to 3 seconds (default)"
+                    }
+            ]
+
         let validateUserPreferences (preferences: UserPreferences) : ValidationResult =
             let errors = [
                 yield! validateNotificationSettings preferences.NotificationSettings
                 yield! validateDisplayDetectionSettings preferences.DisplayDetectionSettings
                 yield! validateUIPreferences preferences.UIPreferences
                 yield! validateAdvancedSettings preferences.AdvancedSettings
+                yield! validateTraySettings preferences.TraySettings
             ]
 
             let warnings = [
@@ -415,9 +488,10 @@ module ApplicationConfiguration =
                 | Ok _ -> ()
 
                 // Save new preferences
-                let updatedPreferences = { preferences with
-                    LastModified = DateTime.Now
-                    Version = "1.0.0" }
+                let updatedPreferences =
+                    { preferences with
+                        LastModified = DateTime.Now
+                        Version = "1.0.0" }
 
                 let json = JsonSerializer.Serialize(updatedPreferences, jsonOptions)
                 do! File.WriteAllTextAsync(userPreferencesPath, json) |> Async.AwaitTask
@@ -618,17 +692,20 @@ module ApplicationConfiguration =
             let state = stateManager.GetState()
 
             { defaultUserPreferences with
-                UIPreferences = { defaultUserPreferences.UIPreferences with
-                    Theme = state.UI.Theme
-                    WindowSize = state.Configuration.WindowSize
-                    WindowPosition = state.Configuration.WindowPosition }
-                DisplayDetectionSettings = { defaultUserPreferences.DisplayDetectionSettings with
-                    AutoRefreshInterval = state.Configuration.RefreshInterval
-                    MaxRetryAttempts = state.Configuration.MaxRetryAttempts }
-                AdvancedSettings = { defaultUserPreferences.AdvancedSettings with
-                    LogLevel = state.Configuration.LogLevel
-                    EnableDebugMode = state.Configuration.EnableDebugMode
-                    CacheSettings = state.Configuration.CacheSettings }
+                UIPreferences =
+                    { defaultUserPreferences.UIPreferences with
+                        Theme = state.UI.Theme
+                        WindowSize = state.Configuration.WindowSize
+                        WindowPosition = state.Configuration.WindowPosition }
+                DisplayDetectionSettings =
+                    { defaultUserPreferences.DisplayDetectionSettings with
+                        AutoRefreshInterval = state.Configuration.RefreshInterval
+                        MaxRetryAttempts = state.Configuration.MaxRetryAttempts }
+                AdvancedSettings =
+                    { defaultUserPreferences.AdvancedSettings with
+                        LogLevel = state.Configuration.LogLevel
+                        EnableDebugMode = state.Configuration.EnableDebugMode
+                        CacheSettings = state.Configuration.CacheSettings }
                 LastModified = DateTime.Now }
 
         /// Create configuration change handler for state manager integration
